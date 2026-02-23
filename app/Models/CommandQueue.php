@@ -3,24 +3,26 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class CommandQueue extends Model
 {
     protected $fillable = [
-        'device_id',
-        'endpoint',
-        'payload',
-        'is_executed'
+        'device_id', 
+        'command_type', // Ex: 'user_set', 'template_set' (biometria)
+        'payload',      // O JSON com os dados que o relógio precisa
+        'status'        // 'pending', 'processing', 'success', 'failed'
     ];
 
-    // Converte automaticamente o JSON do banco para Array no PHP, e vice-versa
-    protected $casts = [
-        'payload' => 'array',
-        'is_executed' => 'boolean',
-    ];
+    // O Laravel 12 faz o cast automático de JSON para Array no PHP
+    protected function casts(): array
+    {
+        return [
+            'payload' => 'array',
+        ];
+    }
 
-    // Relacionamento: Este comando é destinado a um relógio específico
-    public function device()
+    public function device(): BelongsTo
     {
         return $this->belongsTo(Device::class);
     }

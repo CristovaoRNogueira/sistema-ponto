@@ -45,10 +45,13 @@ class ControlIdController extends Controller
                             // Busca o servidor pelo PIS (se não existir, cria um registro temporário)
                             $employee = Employee::firstOrCreate(
                                 ['pis' => $log['pis']],
-                                ['name' => 'Servidor (PIS: '.$log['pis'].')']
+                                [
+                                    'name' => 'Servidor (PIS: '.$log['pis'].')',
+                                    'is_active' => true // Obrigatório pela nossa nova arquitetura
+                                ]
                             );
 
-                            // Salva a batida no banco (firstOrCreate evita duplicar a mesma batida)
+                            // Salva a batida no banco
                             PunchLog::firstOrCreate([
                                 'employee_id' => $employee->id,
                                 'nsr'         => $log['nsr'] ?? null,
@@ -61,35 +64,36 @@ class ControlIdController extends Controller
             }
         }
 
-        // 4. Verifica a Fila de Comandos (O Segredo do Enterprise Push)
-        // Montamos a estrutura de resposta que o relógio espera
+        // 4. Verifica a Fila de Comandos (Alinhado com a Documentação Oficial)
         $response = [
             'request' => [
                 'cmds' => []
             ]
         ];
 
-        // Busca se existe alguma ordem do RH pendente para ESTE relógio
+        // Busca ordens pendentes para este relógio
         $pendingCommands = CommandQueue::where('device_id', $device->id)
-                                ->where('is_executed', false)
+                                ->where('status', 'pending')
                                 ->get();
 
         foreach ($pendingCommands as $command) {
-            // Empacota o comando no formato que o relógio entende
+            
+            // Empacota o comando no formato exato da API
+            // Agora o 'command_type' já possui o nome correto (ex: add_users.fcgi)
             $response['request']['cmds'][] = [
                 'id' => $command->id,
                 'cmd' => 'request',
                 'params' => [
-                    'endpoint' => $command->endpoint,
+                    'endpoint' => $command->command_type, 
                     'body' => $command->payload
                 ]
             ];
             
-            // Marca como executado para não enviar o mesmo comando duas vezes
-            $command->update(['is_executed' => true]); 
+            // Marca como SUCESSO para não enviar o mesmo comando duas vezes
+            $command->update(['status' => 'success']); 
         }
 
-        // 5. Devolve o JSON de resposta para o equipamento
+        // 5. Devolve o JSON de resposta (HTTP 200 OK) para o equipamento
         return response()->json($response, 200);
     }
 }
