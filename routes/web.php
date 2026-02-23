@@ -1,12 +1,42 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\AdminController;
+use App\Http\Controllers\CompanyController;
+use App\Http\Controllers\EmployeeController;
+use Illuminate\Support\Facades\Route;
 
-// Rota para a tela inicial
-Route::get('/', [AdminController::class, 'index'])->name('dashboard');
+Route::get('/', function () {
+    return view('welcome');
+});
 
-// Rota para receber o formulário de cadastro
-Route::post('/servidores/cadastrar', [AdminController::class, 'storeEmployee'])->name('employee.store');
-Route::post('/admin/absences', [AdminController::class, 'storeAbsence'])->name('admin.absences.store');
-Route::post('/admin/shift-exceptions', [AdminController::class, 'storeShiftSwap'])->name('admin.shift_exceptions.store');
+Route::middleware('auth')->group(function () {
+    // Setup da Empresa
+    Route::get('/company/setup', [CompanyController::class, 'create'])->name('company.create');
+    Route::post('/company/setup', [CompanyController::class, 'store'])->name('company.store');
+
+    // Sistema Principal
+    Route::middleware('company')->group(function () {
+        
+        // 1. Dashboard (Apenas Gráficos)
+        Route::get('/dashboard', [AdminController::class, 'index'])->name('dashboard');
+        
+        // 2. Gestão de Servidores (Telas Separadas)
+        Route::get('/admin/employees', [EmployeeController::class, 'index'])->name('employees.index');
+        Route::get('/admin/employees/create', [EmployeeController::class, 'create'])->name('employees.create');
+        Route::post('/admin/employees', [EmployeeController::class, 'store'])->name('employees.store');
+        
+        // 3. Ações do Relógio e Ponto
+        Route::post('/admin/employees/{employee}/sync', [AdminController::class, 'syncEmployeeToDevice'])->name('admin.employees.sync');
+        Route::post('/admin/absences', [AdminController::class, 'storeAbsence'])->name('admin.absences.store');
+        Route::post('/admin/shift-exceptions', [AdminController::class, 'storeShiftSwap'])->name('admin.shift_exceptions.store');
+        Route::get('/admin/employees/{employee}/timesheet', [AdminController::class, 'reportTimesheet'])->name('admin.timesheet.report');
+    });
+
+    // Perfil do Breeze
+    Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
+    Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
+    Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+});
+
+require __DIR__.'/auth.php';
