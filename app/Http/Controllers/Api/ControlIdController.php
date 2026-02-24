@@ -15,86 +15,97 @@ class ControlIdController extends Controller
 {
     public function handlePush(Request $request)
     {
-        // 1. Recebe o pacote de dados em formato JSON
         $payload = $request->json()->all();
         
-        // O relógio Control iD sempre envia o seu número de série no cabeçalho (header)
-        $serialNumber = $request->header('device_id'); 
+        // 1. Captura o Serial Number do Relógio (NSR)
+        $serialNumber = $request->header('device_id') 
+                        ?? $request->header('User-Agent') 
+                        ?? $request->query('device_id');
         
+        if ($serialNumber) {
+            $serialNumber = trim(str_replace('iDClass/', '', $serialNumber));
+        }
+
         if (!$serialNumber) {
-            Log::warning('Tentativa de conexão sem Device ID.');
             return response()->json(['error' => 'Device ID missing'], 400);
         }
 
-        // 2. Identifica o relógio ou cadastra automaticamente se for novo
-        $device = Device::firstOrCreate(
-            ['serial_number' => $serialNumber],
-            ['name' => 'iDClass - ' . $serialNumber]
-        );
+        // 2. Busca o Relógio Real. Se não existir, ignora para não poluir o banco.
+        $device = Device::where('serial_number', $serialNumber)->first();
+        if (!$device) {
+            Log::error("Relógio não cadastrado tentou conectar: NSR {$serialNumber}");
+            return response()->json(['request' => ['cmds' => []]], 200);
+        }
 
-        // 3. Processa as batidas de ponto (Tick Logs)
+        // 3. TRATAR FEEDBACK DE SUCESSO DO RELÓGIO
+        if (isset($payload['responses'])) {
+            foreach ($payload['responses'] as $res) {
+                $command = CommandQueue::find($res['id']);
+                if ($command) {
+                    $status = (isset($res['response']['status']) && $res['response']['status'] == 200) ? 'success' : 'error';
+                    $command->update(['status' => $status]);
+                }
+            }
+        }
+
+        // 4. PROCESSAR BATIDAS DE PONTO (TICK LOGS)
         if (isset($payload['object_changes'])) {
             foreach ($payload['object_changes'] as $change) {
-                // Verifica se a alteração é uma nova inserção de batida de ponto
                 if ($change['object'] === 'tick_logs' && $change['type'] === 'inserted') {
-                    
                     foreach ($change['values'] as $log) {
                         if (isset($log['pis']) && isset($log['time'])) {
-                            // Converte a hora do relógio (Unix) para o formato do banco (Y-m-d H:i:s)
-                            $punchTime = Carbon::createFromTimestamp($log['time'], 'America/Bahia')->toDateTimeString();
                             
-                            // Busca o servidor pelo PIS (se não existir, cria um registro temporário)
-                            $employee = Employee::firstOrCreate(
-                                ['pis' => $log['pis']],
-                                [
-                                    'name' => 'Servidor (PIS: '.$log['pis'].')',
-                                    'is_active' => true // Obrigatório pela nossa nova arquitetura
-                                ]
-                            );
+                            // A MÁGICA AQUI: Converte do relógio pro horário de Carinhanha/Bahia!
+                            $punchTime = Carbon::createFromTimestamp($log['time'], config('app.timezone', 'America/Bahia'))->format('Y-m-d H:i:s');
+                            
+                            // Limpa o PIS de zeros extras
+                            $pisLimpo = ltrim(trim($log['pis']), '0');
+                            
+                            // Encontra o SEU servidor exato, sem criar fantasmas!
+                            $employee = Employee::where('company_id', $device->company_id)
+                                ->where(function($q) use ($pisLimpo) {
+                                    $q->where('pis', $pisLimpo)
+                                      ->orWhere('pis', str_pad($pisLimpo, 11, '0', STR_PAD_LEFT));
+                                })->first();
 
-                            // Salva a batida no banco
-                            PunchLog::firstOrCreate([
-                                'employee_id' => $employee->id,
-                                'nsr'         => $log['nsr'] ?? null,
-                                'device_id'   => $device->id,
-                                'punch_time'  => $punchTime
-                            ]);
+                            if ($employee) {
+                                // Grava a batida perfeitamente vinculada ao Cristovão
+                                PunchLog::firstOrCreate([
+                                    'employee_id' => $employee->id,
+                                    'device_id'   => $device->id,
+                                    'punch_time'  => $punchTime
+                                ], [
+                                    'nsr' => $log['nsr'] ?? null
+                                ]);
+                            } else {
+                                Log::warning("Batida ignorada: PIS {$log['pis']} não pertence a nenhum servidor.");
+                            }
                         }
                     }
                 }
             }
         }
 
-        // 4. Verifica a Fila de Comandos (Alinhado com a Documentação Oficial)
-        $response = [
-            'request' => [
-                'cmds' => []
-            ]
-        ];
+        // 5. ENVIAR PRÓXIMAS ORDENS PARA O RELÓGIO
+        $response = ['request' => ['cmds' => []]];
 
-        // Busca ordens pendentes para este relógio
         $pendingCommands = CommandQueue::where('device_id', $device->id)
                                 ->where('status', 'pending')
+                                ->orderBy('created_at', 'asc')
                                 ->get();
 
         foreach ($pendingCommands as $command) {
-            
-            // Empacota o comando no formato exato da API
-            // Agora o 'command_type' já possui o nome correto (ex: add_users.fcgi)
             $response['request']['cmds'][] = [
-                'id' => $command->id,
+                'id' => (int) $command->id,
                 'cmd' => 'request',
                 'params' => [
                     'endpoint' => $command->command_type, 
                     'body' => $command->payload
                 ]
             ];
-            
-            // Marca como SUCESSO para não enviar o mesmo comando duas vezes
-            $command->update(['status' => 'success']); 
+            $command->update(['status' => 'waiting']); 
         }
 
-        // 5. Devolve o JSON de resposta (HTTP 200 OK) para o equipamento
         return response()->json($response, 200);
     }
 }
