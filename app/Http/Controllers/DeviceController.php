@@ -1,29 +1,64 @@
 <?php
+
 namespace App\Http\Controllers;
+
 use App\Models\Device;
+use App\Models\Employee;
+use App\Models\PunchLog;
+use App\Models\CommandQueue;
+use App\Services\DeviceCommandService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use App\Models\Employee;
-use App\Models\CommandQueue;
 
-class DeviceController extends Controller {
-    public function index() {
+class DeviceController extends Controller
+{
+    public function index()
+    {
         $devices = Device::where('company_id', Auth::user()->company_id)->get();
         return view('devices.index', compact('devices'));
     }
-    public function store(Request $request) {
-        $request->validate(['name' => 'required|string', 'serial_number' => 'required|string|unique:devices,serial_number']);
-        Device::create(['name' => $request->name, 'serial_number' => $request->serial_number, 'company_id' => Auth::user()->company_id]);
-        return back()->with('success', 'Relógio adicionado! Configure a URL no equipamento.');
-    }
-    public function destroy(Device $device) {
-        if($device->company_id === Auth::user()->company_id) $device->delete();
-        return back()->with('success', 'Relógio removido!');
+
+    public function store(Request $request)
+    {
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'serial_number' => 'required|string|max:255|unique:devices',
+            'ip_address' => 'nullable|ipv4', // Valida se é um IP válido
+        ]);
+
+        Device::create([
+            'company_id' => Auth::user()->company_id,
+            'name' => $request->name,
+            'serial_number' => $request->serial_number,
+            'ip_address' => $request->ip_address,
+            'username' => $request->username ?? 'admin',
+            'password' => $request->password ?? 'admin'
+        ]);
+
+        return back()->with('success', 'Relógio cadastrado com sucesso!');
     }
 
-    public function syncEmployees(Device $device)
+    public function destroy(Device $device)
     {
-        // Pega todos os servidores ativos da empresa deste relógio
+        if ($device->company_id !== Auth::user()->company_id) {
+            abort(403);
+        }
+
+        // 1. A CORREÇÃO DO ERRO 500: Desvincula as batidas antigas deste relógio (Preserva o histórico!)
+        PunchLog::where('device_id', $device->id)->update(['device_id' => null]);
+        
+        // 2. Remove comandos pendentes na fila (caso tenha sobrado algo do sistema antigo)
+        CommandQueue::where('device_id', $device->id)->delete();
+
+        // 3. Agora sim, exclui o aparelho com segurança
+        $device->delete();
+
+        return back()->with('success', 'Relógio excluído com sucesso!');
+    }
+
+    // Sincronização em Lote (Novo Motor IP)
+    public function syncEmployees(Device $device, DeviceCommandService $commandService)
+    {
         $employees = Employee::where('company_id', $device->company_id)
             ->where('is_active', true)
             ->get();
@@ -33,29 +68,26 @@ class DeviceController extends Controller {
         }
 
         $usersPayload = [];
-
         foreach ($employees as $emp) {
+            // Limpa tudo que não for número e preenche com zeros à esquerda até dar 11 dígitos
+            $pisLimpo = preg_replace('/[^0-9]/', '', (string)$emp->pis);
+            $pisFormatado = str_pad($pisLimpo, 11, '0', STR_PAD_LEFT);
+
             $usersPayload[] = [
-                'name' => current(explode(' ', $emp->name)), // Control iD sugere nomes curtos no display
-                'pis' => $emp->pis,
+                'name' => substr($emp->name, 0, 50),
+                'pis' => $pisFormatado,
                 'registration' => (string) $emp->registration_number,
-                // O relógio precisa de um ID ou CPF. Usamos PIS como ID principal caso CPF seja nulo.
-                'cpf' => $emp->cpf ?? preg_replace('/[^0-9]/', '', $emp->pis), 
+                'cpf' => preg_replace('/[^0-9]/', '', $emp->cpf ?? $emp->pis), 
             ];
         }
 
-        // Dividimos em lotes de 50 servidores por comando para não travar a memória do relógio
-        $chunks = array_chunk($usersPayload, 50);
+        // Dispara o comando direto para o IP do equipamento!
+        $response = $commandService->syncUsersBatch($device, $usersPayload);
 
-        foreach ($chunks as $chunk) {
-            CommandQueue::create([
-                'device_id' => $device->id,
-                'command_type' => 'add_users.fcgi',
-                'payload' => ['users' => $chunk],
-                'status' => 'pending'
-            ]);
+        if ($response !== false) {
+            return back()->with('success', count($employees) . ' servidores injetados no relógio ' . $device->name);
+        } else {
+            return back()->with('error', 'Falha ao conectar. Verifique se o Endereço IP está correto e se o relógio está na mesma rede.');
         }
-
-        return back()->with('success', count($employees) . ' servidores foram enviados para a fila do relógio ' . $device->name);
     }
 }

@@ -4,83 +4,112 @@ namespace App\Services;
 
 use App\Models\Device;
 use App\Models\Employee;
-use App\Models\CommandQueue;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class DeviceCommandService
 {
     /**
-     * Envia a ordem para cadastrar um funcionário no relógio físico.
-     * Referência do Postman: /add_users.fcgi
+     * Faz o login no equipamento e retorna o Token de Sessão
      */
-    public function sendEmployeeToDevice(Employee $employee, Device $device): CommandQueue
+    private function authenticate(Device $device): string
     {
-        // Estrutura EXATA exigida pelo add_users.fcgi na coleção do Postman
-        $payload = [
-            'users' => [
-                [
-                    'admin' => false,
-                    'name' => substr($employee->name, 0, 50),
-                    'pis' => (string) $employee->pis,
-                    'cpf' => $employee->cpf ? (string) $employee->cpf : '', // Suporte a Portaria 671
-                    'registration' => (string) $employee->registration_number,
-                    // 'password' => '12345', // Opcional: pode definir uma senha padrão se quiser
-                    'templates' => [] // Biometrias (vazio no primeiro cadastro)
-                ]
-            ]
-        ];
+        if (empty($device->ip_address)) {
+            throw new \Exception("Sem IP configurado.");
+        }
 
-        return CommandQueue::create([
-            'device_id' => $device->id,
-            'command_type' => 'add_users.fcgi', // Usando o endpoint oficial
-            'payload' => $payload,
-            'status' => 'pending'
-        ]);
+        // Força bruta para ignorar SSL e Cabeçalhos estritos
+        $response = Http::withOptions([
+                'verify' => false, // Ignora o erro 60 do SSL
+            ])
+            ->withHeaders([
+                'Content-Type' => 'application/json',
+                'Accept' => 'application/json',
+            ])
+            ->timeout(10)
+            ->post("https://{$device->ip_address}/login.fcgi", [
+                'login' => $device->username ?? 'admin',
+                'password' => $device->password ?? 'admin'
+            ]);
+
+        if ($response->successful() && isset($response['session'])) {
+            return $response['session'];
+        }
+
+        $erro = $response->body() ?: 'Timeout/Sem Resposta';
+        throw new \Exception("Erro de Login (HTTP {$response->status()}): {$erro}");
     }
 
     /**
-     * Envia a ordem para atualizar um usuário existente.
-     * Referência do Postman: /update_users.fcgi
+     * Envia qualquer comando para o relógio já autenticado
      */
-    public function updateEmployeeOnDevice(Employee $employee, Device $device): CommandQueue
+    public function sendCommand(Device $device, string $endpoint, array $payload = [])
     {
-        $payload = [
-            'users' => [
-                [
-                    'admin' => false,
-                    'name' => substr($employee->name, 0, 50),
-                    'pis' => (string) $employee->pis,
-                    'cpf' => $employee->cpf ? (string) $employee->cpf : '',
-                    'registration' => (string) $employee->registration_number,
-                ]
-            ]
-        ];
+        try {
+            $session = $this->authenticate($device);
+            $url = "https://{$device->ip_address}/{$endpoint}?session={$session}";
 
-        return CommandQueue::create([
-            'device_id' => $device->id,
-            'command_type' => 'update_users.fcgi',
-            'payload' => $payload,
-            'status' => 'pending'
+            $response = Http::withOptions([
+                    'verify' => false, 
+                ])
+                ->withHeaders([
+                    'Content-Type' => 'application/json',
+                ])
+                ->timeout(15)
+                ->post($url, $payload);
+
+            if (!$response->successful()) {
+                Log::error("Erro {$endpoint} IP {$device->ip_address}: " . $response->body());
+                return false;
+            }
+
+            return $response->json();
+        } catch (\Exception $e) {
+            // Salva o erro exato no log do Laravel para investigarmos se falhar
+            Log::error("FALHA DE SINCRONIZAÇÃO ({$device->name}): " . $e->getMessage());
+            return false;
+        }
+    }
+
+    public function sendEmployeeToDevice(Employee $employee, Device $device)
+    {
+        $cpfLimpo = preg_replace('/[^0-9]/', '', $employee->cpf ?? $employee->pis);
+        $pisFormatado = str_pad(preg_replace('/[^0-9]/', '', (string)$employee->pis), 11, '0', STR_PAD_LEFT);
+        
+        return $this->sendCommand($device, 'add_users.fcgi', [
+            'users' => [[
+                'admin' => false,
+                'name' => substr($employee->name, 0, 50),
+                'pis' => $pisFormatado,
+                'cpf' => $cpfLimpo,
+                'registration' => (string) $employee->registration_number,
+            ]]
         ]);
     }
 
-    /**
-     * Envia a ordem para DELETAR um usuário do relógio físico.
-     * Referência do Postman: /remove_users.fcgi
-     */
-    public function removeEmployeeFromDevice(Employee $employee, Device $device): CommandQueue
+    public function updateEmployeeOnDevice(Employee $employee, Device $device)
     {
-        $payload = [
-            // A API de remoção da Control iD pede um array simples com os IDs (PIS/CPF)
-            'users' => [
-                (int) $employee->pis
-            ]
-        ];
+        $cpfLimpo = preg_replace('/[^0-9]/', '', $employee->cpf ?? $employee->pis);
+        $pisFormatado = str_pad(preg_replace('/[^0-9]/', '', (string)$employee->pis), 11, '0', STR_PAD_LEFT);
 
-        return CommandQueue::create([
-            'device_id' => $device->id,
-            'command_type' => 'remove_users.fcgi',
-            'payload' => $payload,
-            'status' => 'pending'
+        return $this->sendCommand($device, 'update_users.fcgi', [
+            'users' => [[
+                'admin' => false,
+                'name' => substr($employee->name, 0, 50),
+                'pis' => $pisFormatado,
+                'cpf' => $cpfLimpo,
+                'registration' => (string) $employee->registration_number,
+            ]]
         ]);
+    }
+
+    public function removeEmployeeFromDevice(Employee $employee, Device $device)
+    {
+        return $this->sendCommand($device, 'remove_users.fcgi', ['users' => [(int) $employee->pis]]);
+    }
+
+    public function syncUsersBatch(Device $device, array $usersPayload)
+    {
+        return $this->sendCommand($device, 'add_users.fcgi', ['users' => $usersPayload]);
     }
 }
