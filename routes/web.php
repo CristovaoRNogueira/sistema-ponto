@@ -48,6 +48,13 @@ Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+
+    // Rotas de Tratamento de Ponto
+Route::post('/timesheet/{employee}/manual-punch', [\App\Http\Controllers\EmployeeController::class, 'storeManualPunch'])->name('timesheet.manual-punch');
+Route::post('/timesheet/{employee}/absence', [\App\Http\Controllers\EmployeeController::class, 'storeAbsence'])->name('timesheet.absence');
+
+// Rota de Bulk Sync (Sincronização do Relógio)
+Route::post('/devices/{device}/sync', [\App\Http\Controllers\DeviceController::class, 'syncEmployees'])->name('devices.sync');
 });
 
 require __DIR__.'/auth.php';

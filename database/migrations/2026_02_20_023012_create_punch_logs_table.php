@@ -12,18 +12,18 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('punch_logs', function (Blueprint $table) {
-    $table->id();
-    $table->foreignId('employee_id')->constrained('employees');
-    $table->foreignId('device_id')->constrained('devices');
-    $table->integer('nsr')->nullable();
-    $table->dateTime('punch_time');
-    $table->timestamps();
-});
+            $table->id();
+            $table->foreignId('employee_id')->constrained('employees');
+            
+            // ADICIONAMOS O NULLABLE AQUI:
+            $table->foreignId('device_id')->nullable()->constrained('devices');
+            
+            $table->integer('nsr')->nullable();
+            $table->dateTime('punch_time');
+            $table->timestamps();
+        });
     }
-
-    /**
-     * Reverse the migrations.
-     */
+    
     public function down(): void
     {
         Schema::dropIfExists('punch_logs');

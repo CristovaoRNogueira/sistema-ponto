@@ -6,11 +6,14 @@ use Illuminate\Database\Eloquent\Model;
 
 class PunchLog extends Model
 {
-    protected $fillable = [
+       protected $fillable = [
         'employee_id',
         'device_id',
         'nsr',
-        'punch_time'
+        'punch_time',
+        'is_manual',
+        'justification',
+        'user_id'
     ];
 
     // O Laravel converte automaticamente essa coluna para um objeto de Data (Carbon)

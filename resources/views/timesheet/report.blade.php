@@ -1,15 +1,36 @@
 <x-app-layout>
     <x-slot name="header">
-        <div class="flex justify-between items-center">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
             <h2 class="font-semibold text-xl text-gray-800 leading-tight">
                 Espelho de Ponto: {{ $employee->name }}
             </h2>
-            <button onclick="window.print()" class="print:hidden bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-md shadow text-sm font-medium flex items-center transition">
-                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
-                Imprimir / PDF
-            </button>
+            
+            <div class="flex space-x-2 print:hidden">
+                <button x-data="" x-on:click.prevent="$dispatch('open-modal', 'add-manual-punch')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md shadow text-sm font-medium transition flex items-center">
+                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                    Batida Manual
+                </button>
+                
+                <button x-data="" x-on:click.prevent="$dispatch('open-modal', 'add-absence')" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md shadow text-sm font-medium transition flex items-center">
+                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    Atestado
+                </button>
+
+                <button onclick="window.print()" class="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-md shadow text-sm font-medium flex items-center transition">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+                    Imprimir / PDF
+                </button>
+            </div>
         </div>
     </x-slot>
+
+    @if (session('success'))
+        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 mt-6 print:hidden">
+            <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative shadow-sm" role="alert">
+                <span class="block sm:inline font-medium">{{ session('success') }}</span>
+            </div>
+        </div>
+    @endif
 
     <div class="py-8 print:py-0">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
@@ -60,7 +81,6 @@
                         <tbody class="divide-y divide-gray-200">
                             @foreach($report as $day)
                                 @php
-                                    // Define a cor de fundo da linha com base no fim de semana ou feriado
                                     $rowClass = 'bg-white';
                                     if($day['status'] === 'divergent') {
                                         $rowClass = 'bg-red-50';
@@ -133,6 +153,80 @@
 
         </div>
     </div>
+
+    <x-modal name="add-manual-punch" focusable>
+        <form method="POST" action="{{ route('timesheet.manual-punch', $employee->id) }}" class="p-6">
+            @csrf
+            <h2 class="text-lg font-bold text-gray-900 mb-2">
+                Inserir Batida Manual
+            </h2>
+            <p class="text-xs text-gray-600 mb-6 bg-yellow-50 border-l-4 border-yellow-400 p-2">
+                <strong>Atenção Portaria 671:</strong> As batidas originais não podem ser apagadas. Esta inclusão será marcada no sistema para fins de auditoria.
+            </p>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <x-input-label for="punch_date" value="Data da Batida" />
+                    <x-text-input id="punch_date" name="punch_date" type="date" class="mt-1 block w-full" required />
+                </div>
+                <div>
+                    <x-input-label for="punch_time" value="Hora da Batida" />
+                    <x-text-input id="punch_time" name="punch_time" type="time" class="mt-1 block w-full" required />
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <x-input-label for="justification" value="Justificativa (Motivo)" />
+                <x-text-input id="justification" name="justification" type="text" class="mt-1 block w-full" placeholder="Ex: Esqueceu de bater, Trabalho externo..." required />
+            </div>
+
+            <div class="mt-6 flex justify-end space-x-3">
+                <x-secondary-button x-on:click="$dispatch('close')">
+                    Cancelar
+                </x-secondary-button>
+                <x-primary-button class="bg-indigo-600 hover:bg-indigo-700">
+                    Salvar Batida
+                </x-primary-button>
+            </div>
+        </form>
+    </x-modal>
+
+    <x-modal name="add-absence" focusable>
+        <form method="POST" action="{{ route('timesheet.absence', $employee->id) }}" class="p-6">
+            @csrf
+            <h2 class="text-lg font-bold text-gray-900 mb-2">
+                Registrar Atestado ou Licença
+            </h2>
+            <p class="text-xs text-gray-600 mb-6 bg-blue-50 border-l-4 border-blue-400 p-2">
+                Os dias cadastrados aqui terão a carga horária abonada automaticamente (não gerarão falta nem saldo negativo no espelho).
+            </p>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <x-input-label for="start_date" value="Data Inicial" />
+                    <x-text-input id="start_date" name="start_date" type="date" class="mt-1 block w-full" required />
+                </div>
+                <div>
+                    <x-input-label for="end_date" value="Data Final" />
+                    <x-text-input id="end_date" name="end_date" type="date" class="mt-1 block w-full" required />
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <x-input-label for="reason" value="Motivo / CID" />
+                <x-text-input id="reason" name="reason" type="text" class="mt-1 block w-full" placeholder="Ex: Atestado Médico, Licença Paternidade..." required />
+            </div>
+
+            <div class="mt-6 flex justify-end space-x-3">
+                <x-secondary-button x-on:click="$dispatch('close')">
+                    Cancelar
+                </x-secondary-button>
+                <x-primary-button class="bg-purple-600 hover:bg-purple-700">
+                    Registrar Atestado
+                </x-primary-button>
+            </div>
+        </form>
+    </x-modal>
 
     <style>
         @media print {

@@ -11,9 +11,9 @@
             <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
                     <p class="text-sm text-gray-500 font-medium">Servidores Ativos</p>
-                    <p class="text-2xl font-bold text-gray-800">{{ $totalEmployees }}</p>
+                    <p class="text-2xl font-bold text-gray-800">{{ $totalEmployees ?? 0 }}</p>
                 </div>
-                </div>
+            </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div class="bg-white p-6 shadow-sm sm:rounded-lg border border-gray-200">
@@ -27,19 +27,32 @@
                         <table class="min-w-full text-left text-sm whitespace-nowrap">
                             <thead class="bg-gray-50 border-b">
                                 <tr>
-                                    <th class="px-4 py-2">Data/Hora</th>
-                                    <th class="px-4 py-2">Servidor</th>
-                                    <th class="px-4 py-2">Relógio</th>
+                                    <th class="px-4 py-2 text-gray-700 font-bold">Data/Hora</th>
+                                    <th class="px-4 py-2 text-gray-700 font-bold">Servidor</th>
+                                    <th class="px-4 py-2 text-gray-700 font-bold">Origem / Relógio</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach($punches as $punch)
+                                @forelse($punches ?? [] as $punch)
                                     <tr class="border-b hover:bg-gray-50">
                                         <td class="px-4 py-2">{{ $punch->punch_time->format('d/m/Y H:i:s') }}</td>
                                         <td class="px-4 py-2 font-medium">{{ $punch->employee->name }}</td>
-                                        <td class="px-4 py-2 text-xs text-gray-500">{{ $punch->device->name }}</td>
+                                        
+                                        <td class="px-4 py-2 text-xs">
+                                            @if($punch->is_manual || empty($punch->device))
+                                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-800">
+                                                    Batida Manual (RH)
+                                                </span>
+                                            @else
+                                                <span class="text-gray-500">{{ $punch->device->name }}</span>
+                                            @endif
+                                        </td>
+                                        </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="3" class="px-4 py-4 text-center text-gray-500">Nenhuma batida registrada ainda.</td>
                                     </tr>
-                                @endforeach
+                                @endforelse
                             </tbody>
                         </table>
                     </div>
@@ -51,17 +64,19 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            const ctx = document.getElementById('attendanceChart').getContext('2d');
-            new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: {!! json_encode($chartLabels) !!},
-                    datasets: [
-                        { label: 'Presenças', data: {!! json_encode($chartPresences) !!}, backgroundColor: '#4F46E5', borderRadius: 4 },
-                        { label: 'Faltas', data: {!! json_encode($chartAbsences) !!}, backgroundColor: '#EF4444', borderRadius: 4 }
-                    ]
-                }
-            });
+            const ctx = document.getElementById('attendanceChart');
+            if(ctx) {
+                new Chart(ctx.getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: {!! json_encode($chartLabels ?? []) !!},
+                        datasets: [
+                            { label: 'Presenças', data: {!! json_encode($chartPresences ?? []) !!}, backgroundColor: '#4F46E5', borderRadius: 4 },
+                            { label: 'Faltas', data: {!! json_encode($chartAbsences ?? []) !!}, backgroundColor: '#EF4444', borderRadius: 4 }
+                        ]
+                    }
+                });
+            }
         });
     </script>
 </x-app-layout>
