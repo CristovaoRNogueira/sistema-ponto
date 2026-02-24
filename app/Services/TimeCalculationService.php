@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Employee;
 use App\Models\Absence;
 use App\Models\ShiftException;
+use App\Models\Holiday;
 use Carbon\Carbon;
 
 class TimeCalculationService
@@ -12,10 +13,12 @@ class TimeCalculationService
     public function calculateDailyTimesheet(Employee $employee, string $date): array
     {
         $dateObj = Carbon::parse($date);
+        $isWeekend = $dateObj->isWeekend();
         
         // 1. Pega as batidas físicas do relógio neste dia
+        // Usamos DATE() para ignorar diferenças de horas e comparar apenas a data pura
         $punches = $employee->punchLogs()
-            ->whereDate('punch_time', $date) // Ajuste se a sua coluna chamar 'timestamp'
+            ->whereRaw("DATE(punch_time) = ?", [$dateObj->format('Y-m-d')])
             ->orderBy('punch_time', 'asc')
             ->get();
 
@@ -40,20 +43,31 @@ class TimeCalculationService
             ->first();
 
         if ($absence) {
-            return $this->buildResult($dateObj, $punchTimes, $workedMinutes, 0, 'justified', 'Atestado/Licença');
+            return $this->buildResult($dateObj, $punchTimes, $workedMinutes, 0, 'justified', 'Atestado/Licença', $isWeekend);
         }
 
-        // 3. Verifica Exceções / Trocas de Plantão (Prioridade 2)
+        // 3. Verifica Feriados (Procura por Feriados da Prefeitura ou Nacionais)
+        $holiday = Holiday::where(function($query) use ($employee) {
+                $query->where('company_id', $employee->company_id)
+                      ->orWhereNull('company_id');
+            })
+            ->whereDate('date', $date) // Usa a coluna 'date' da sua migration
+            ->first();
+
+        // 4. Verifica Exceções / Trocas de Plantão
         $exception = ShiftException::where('employee_id', $employee->id)
             ->whereDate('exception_date', $date)
             ->first();
 
-        // 4. Define o que era "Esperado" para hoje
+        // 5. Define o que era "Esperado" para hoje
         $expectedMinutes = 0;
         $tolerance = 15; // Margem de atraso padrão da prefeitura
         $observation = '';
 
-        if ($exception) {
+        if ($holiday) {
+            $expectedMinutes = 0; // Feriado não tem expectativa de horas
+            $observation = 'Feriado: ' . $holiday->name;
+        } elseif ($exception) {
             if ($exception->type === 'day_off') {
                 $expectedMinutes = 0; // Folga
                 $observation = 'Folga/Troca compensada';
@@ -63,23 +77,25 @@ class TimeCalculationService
             }
         } elseif ($employee->shift) {
             // Regra Padrão (Sem exceção)
-            
-            // Se for final de semana e não houver plantão, a expectativa é zero
-            if ($dateObj->isWeekend()) {
-                $expectedMinutes = 0;
+            if ($isWeekend) {
+                $expectedMinutes = 0; // Finais de semana não trabalhados
             } else {
                 $expectedMinutes = $employee->shift->daily_work_minutes;
                 $tolerance = $employee->shift->tolerance_minutes;
             }
+        } else {
+            $observation = 'Sem Jornada Vinculada';
         }
 
-        // 5. Calcula o Saldo e Status
+        // 6. Calcula o Saldo e Status
         $diff = $workedMinutes - $expectedMinutes;
         $status = 'normal';
         $balanceMinutes = 0;
 
         if ($isDivergent) {
             $status = 'divergent'; // Faltou bater a saída
+        } elseif ($holiday && $workedMinutes == 0) {
+            $status = 'holiday'; // Feriado, não trabalhou, ok
         } elseif ($expectedMinutes == 0 && $workedMinutes == 0) {
             $status = 'day_off'; // Era folga e não trabalhou, tudo certo
         } elseif (abs($diff) > $tolerance) {
@@ -87,13 +103,18 @@ class TimeCalculationService
             $status = $diff > 0 ? 'overtime' : 'delay';
         }
 
-        return $this->buildResult($dateObj, $punchTimes, $workedMinutes, $balanceMinutes, $status, $observation);
+        return $this->buildResult($dateObj, $punchTimes, $workedMinutes, $balanceMinutes, $status, $observation, $isWeekend);
     }
 
-    private function buildResult($dateObj, $punches, $workedMin, $balanceMin, $status, $obs): array
+    private function buildResult($dateObj, $punches, $workedMin, $balanceMin, $status, $obs, $isWeekend): array
     {
+        // Nome do dia na semana (segunda-feira, terça-feira...)
+        $dayName = ucfirst($dateObj->locale('pt_BR')->translatedFormat('l'));
+
         return [
             'date' => $dateObj->format('d/m/Y'),
+            'day_name' => $dayName,
+            'is_weekend' => $isWeekend, // Avisa à tela se é Sábado/Domingo
             'punches' => $punches,
             'worked_formatted' => $this->formatMinutes($workedMin),
             'balance_formatted' => $this->formatMinutes(abs($balanceMin)),

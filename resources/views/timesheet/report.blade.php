@@ -18,24 +18,25 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                         <h3 class="text-lg font-bold text-gray-800 mb-4 uppercase tracking-wider text-sm border-b pb-2">Dados do Servidor</h3>
-                        <p class="text-sm text-gray-700 mb-1"><strong>Empresa:</strong> {{ $employee->company->name ?? 'Prefeitura Municipal' }}</p>
+                        <p class="text-sm text-gray-700 mb-1"><strong>Órgão/Empresa:</strong> {{ $employee->company->name ?? 'Prefeitura Municipal' }}</p>
                         <p class="text-sm text-gray-700 mb-1"><strong>PIS:</strong> {{ $employee->pis }}</p>
                         <p class="text-sm text-gray-700 mb-1"><strong>Departamento:</strong> {{ $employee->department->name ?? 'Não vinculado' }}</p>
+                        <p class="text-sm text-gray-700 mb-1"><strong>Jornada Vinculada:</strong> {{ $employee->shift->name ?? 'NENHUMA JORNADA DEFINIDA' }}</p>
                         <p class="text-sm text-gray-700"><strong>Mês de Apuração:</strong> <span class="capitalize">{{ $period }}</span></p>
                     </div>
                     
                     <div class="grid grid-cols-2 gap-4">
                         <div class="bg-indigo-50 p-4 rounded border border-indigo-100 print:border-gray-300 print:bg-white">
                             <p class="text-xs text-indigo-600 uppercase font-bold print:text-gray-800">Horas Trabalhadas</p>
-                            <p class="text-2xl font-bold text-indigo-900 print:text-black">{{ $totalsFormatted['worked'] }}</p>
+                            <p class="text-2xl font-bold text-indigo-900 print:text-black">{{ $totalsFormatted['worked'] ?? '00:00' }}</p>
                         </div>
                         <div class="bg-green-50 p-4 rounded border border-green-100 print:border-gray-300 print:bg-white">
                             <p class="text-xs text-green-600 uppercase font-bold print:text-gray-800">Saldo Extra Positivo</p>
-                            <p class="text-2xl font-bold text-green-900 print:text-black">{{ $totalsFormatted['overtime'] }}</p>
+                            <p class="text-2xl font-bold text-green-900 print:text-black">{{ $totalsFormatted['overtime'] ?? '00:00' }}</p>
                         </div>
                         <div class="bg-red-50 p-4 rounded border border-red-100 col-span-2 print:border-gray-300 print:bg-white">
                             <p class="text-xs text-red-600 uppercase font-bold print:text-gray-800">Atrasos / Faltas (Negativo)</p>
-                            <p class="text-2xl font-bold text-red-900 print:text-black">{{ $totalsFormatted['delay'] }}</p>
+                            <p class="text-2xl font-bold text-red-900 print:text-black">{{ $totalsFormatted['delay'] ?? '00:00' }}</p>
                         </div>
                     </div>
                 </div>
@@ -59,34 +60,50 @@
                         <tbody class="divide-y divide-gray-200">
                             @foreach($report as $day)
                                 @php
-                                    // Cores baseadas no status do dia
-                                    $rowClass = '';
-                                    if($day['status'] === 'divergent') $rowClass = 'bg-red-50';
-                                    elseif(in_array($day['status'], ['weekend', 'holiday'])) $rowClass = 'bg-gray-50 text-gray-500';
+                                    // Define a cor de fundo da linha com base no fim de semana ou feriado
+                                    $rowClass = 'bg-white';
+                                    if($day['status'] === 'divergent') {
+                                        $rowClass = 'bg-red-50';
+                                    } elseif($day['status'] === 'holiday') {
+                                        $rowClass = 'bg-blue-50';
+                                    } elseif($day['is_weekend']) {
+                                        $rowClass = 'bg-gray-100';
+                                    }
                                 @endphp
                                 
                                 <tr class="hover:bg-indigo-50 {{ $rowClass }} print:bg-white print:text-black">
-                                    <td class="px-4 py-2 font-medium">{{ $day['date'] }}</td>
+                                    <td class="px-4 py-3">
+                                        <div class="font-bold text-gray-800">{{ $day['date'] }}</div>
+                                        <div class="text-xs text-gray-500 capitalize">{{ $day['day_name'] }}</div>
+                                    </td>
                                     
-                                    <td class="px-4 py-2 font-medium text-xs uppercase tracking-wider">
-                                        @if($day['status'] === 'regular') <span class="text-green-600">Normal</span>
-                                        @elseif($day['status'] === 'absence') <span class="text-red-600 font-bold">Falta</span>
-                                        @elseif($day['status'] === 'divergent') <span class="text-orange-600 font-bold">Incompleto</span>
-                                        @elseif($day['status'] === 'weekend') <span>Final de Semana</span>
-                                        @elseif($day['status'] === 'holiday') <span class="text-blue-600">Feriado</span>
-                                        @elseif($day['status'] === 'excused') <span class="text-purple-600">Atestado/Abono</span>
+                                    <td class="px-4 py-3">
+                                        <div class="font-bold text-xs uppercase tracking-wider">
+                                            @if($day['status'] === 'normal') <span class="text-green-600">Normal</span>
+                                            @elseif($day['status'] === 'overtime') <span class="text-green-600">Hora Extra</span>
+                                            @elseif($day['status'] === 'delay') <span class="text-red-600">Atraso/Falta</span>
+                                            @elseif($day['status'] === 'divergent') <span class="text-orange-600">Incompleto</span>
+                                            @elseif($day['status'] === 'day_off') <span class="text-gray-500">Folga / DSR</span>
+                                            @elseif($day['status'] === 'holiday') <span class="text-blue-600">Feriado</span>
+                                            @elseif($day['status'] === 'justified') <span class="text-purple-600">Atestado/Licença</span>
+                                            @endif
+                                        </div>
+                                        @if(!empty($day['observation']))
+                                            <div class="text-[10px] text-gray-500 mt-1 uppercase">{{ $day['observation'] }}</div>
                                         @endif
                                     </td>
                                     
-                                    <td class="px-4 py-2 text-center font-mono">{{ $day['punches'][0] ?? '-' }}</td>
-                                    <td class="px-4 py-2 text-center font-mono">{{ $day['punches'][1] ?? '-' }}</td>
-                                    <td class="px-4 py-2 text-center font-mono">{{ $day['punches'][2] ?? '-' }}</td>
-                                    <td class="px-4 py-2 text-center font-mono">{{ $day['punches'][3] ?? '-' }}</td>
+                                    <td class="px-4 py-3 text-center font-mono">{{ $day['punches'][0] ?? '--:--' }}</td>
+                                    <td class="px-4 py-3 text-center font-mono">{{ $day['punches'][1] ?? '--:--' }}</td>
+                                    <td class="px-4 py-3 text-center font-mono">{{ $day['punches'][2] ?? '--:--' }}</td>
+                                    <td class="px-4 py-3 text-center font-mono">{{ $day['punches'][3] ?? '--:--' }}</td>
                                     
-                                    <td class="px-4 py-2 text-center font-bold">{{ $day['worked_formatted'] }}</td>
+                                    <td class="px-4 py-3 text-center font-bold text-gray-700">
+                                        {{ $day['worked_formatted'] !== '00:00' ? $day['worked_formatted'] : '-' }}
+                                    </td>
                                     
-                                    <td class="px-4 py-2 text-right font-bold">
-                                        @if($day['status'] !== 'divergent' && !in_array($day['status'], ['weekend', 'holiday']))
+                                    <td class="px-4 py-3 text-right font-bold">
+                                        @if(in_array($day['status'], ['normal', 'overtime', 'delay']))
                                             @if($day['balance_minutes'] > 0)
                                                 <span class="text-green-600">+{{ $day['balance_formatted'] }}</span>
                                             @elseif($day['balance_minutes'] < 0)
@@ -122,6 +139,7 @@
             body { background-color: white !important; }
             nav { display: none !important; }
             .min-h-screen { background-color: white !important; }
+            @page { margin: 1cm; }
         }
     </style>
 </x-app-layout>
