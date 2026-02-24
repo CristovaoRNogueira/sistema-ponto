@@ -37,21 +37,27 @@ class DeviceCommandService
         try {
             $session = $this->authenticate($device);
             
+            // Colocamos o mode=671 na URL
             $url = "https://{$device->ip_address}/{$endpoint}?session={$session}";
             if ($useMode671) {
                 $url .= "&mode=671";
             }
 
-            // Injetamos a sessão no corpo do JSON, como exige a API
-            $payload['session'] = $session;
+            // Para comandos de "load", o relógio iDClass muitas vezes exige 
+            // que a session seja o ÚNICO campo no JSON se não houver filtros.
+            $finalPayload = ['session' => $session];
+            
+            // Mescla com o restante do payload apenas se houver dados (como na criação de usuários)
+            if (!empty($payload)) {
+                $finalPayload = array_merge($finalPayload, $payload);
+            }
 
-            Log::info("==== PAYLOAD ENVIADO PARA {$endpoint} ====", $payload);
+            Log::info("==== PAYLOAD ENVIADO PARA {$endpoint} ====", $finalPayload);
 
-            // Usamos ->asJson() para garantir que o Laravel não converta tipos de dados
             $response = Http::withOptions(['verify' => false])
                 ->asJson() 
                 ->timeout(30)
-                ->post($url, $payload);
+                ->post($url, $finalPayload);
 
             if (!$response->successful()) {
                 Log::error("Erro {$endpoint} IP {$device->ip_address}: " . $response->body());
@@ -98,13 +104,18 @@ class DeviceCommandService
 
     /**
      * Puxa todos os usuários do relógio.
-     * Enviamos exatamente como no exemplo do Postman que você mandou.
+     * Deixamos o payload vazio para que o sendCommand envie apenas a session.
      */
-    public function getUsersFromDevice(Device $device)
-    {
-        return $this->sendCommand($device, 'load_users.fcgi', [
-            'limit' => (int) 1000, // Garantimos que é um Inteiro puro
-            'offset' => (int) 0
-        ], true);
-    }
+    public function getUsersFromDevice(Device $device, int $limit = 100, int $offset = 0)
+{
+    return $this->sendCommand(
+        $device,
+        'load_users.fcgi',
+        [
+            'limit' => (int) $limit,
+            'offset' => (int) $offset
+        ],
+        true
+    );
+}
 }
