@@ -35,15 +35,60 @@
     <div class="py-8 print:py-0">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
 
+            <div class="bg-white p-4 shadow-sm sm:rounded-lg border border-gray-200 print:hidden">
+                <form method="GET" action="{{ route('admin.timesheet.report', $employee->id) }}" class="flex flex-col sm:flex-row items-end space-y-4 sm:space-y-0 sm:space-x-4">
+                    <div class="w-full sm:w-48">
+                        <x-input-label for="month" value="Mês de Apuração" />
+                        <select name="month" id="month" class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm">
+                            @php
+                                $meses = [
+                                    1 => 'Janeiro', 2 => 'Fevereiro', 3 => 'Março', 4 => 'Abril',
+                                    5 => 'Maio', 6 => 'Junho', 7 => 'Julho', 8 => 'Agosto',
+                                    9 => 'Setembro', 10 => 'Outubro', 11 => 'Novembro', 12 => 'Dezembro'
+                                ];
+                                $selectedMonth = request('month', \Carbon\Carbon::now()->month);
+                            @endphp
+                            @foreach($meses as $num => $nome)
+                                <option value="{{ $num }}" {{ $selectedMonth == $num ? 'selected' : '' }}>
+                                    {{ $nome }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+                    
+                    <div class="w-full sm:w-32">
+                        <x-input-label for="year" value="Ano" />
+                        <select name="year" id="year" class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm">
+                            @php
+                                $currentYear = \Carbon\Carbon::now()->year;
+                                $selectedYear = request('year', $currentYear);
+                            @endphp
+                            @foreach(range($currentYear - 2, $currentYear + 1) as $y)
+                                <option value="{{ $y }}" {{ $selectedYear == $y ? 'selected' : '' }}>
+                                    {{ $y }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <div class="w-full sm:w-auto">
+                        <x-primary-button type="submit" class="bg-gray-800 w-full sm:w-auto justify-center">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                            Buscar Período
+                        </x-primary-button>
+                    </div>
+                </form>
+            </div>
+
             <div class="bg-white p-6 shadow-sm sm:rounded-lg border border-gray-200 print:shadow-none print:border-b-2 print:border-gray-800 print:rounded-none">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                         <h3 class="text-lg font-bold text-gray-800 mb-4 uppercase tracking-wider text-sm border-b pb-2">Dados do Servidor</h3>
                         <p class="text-sm text-gray-700 mb-1"><strong>Órgão/Empresa:</strong> {{ $employee->company->name ?? 'Prefeitura Municipal' }}</p>
-                        <p class="text-sm text-gray-700 mb-1"><strong>PIS:</strong> {{ $employee->pis }}</p>
+                        <p class="text-sm text-gray-700 mb-1"><strong>CPF:</strong> {{ $employee->cpf }}</p>
                         <p class="text-sm text-gray-700 mb-1"><strong>Departamento:</strong> {{ $employee->department->name ?? 'Não vinculado' }}</p>
                         <p class="text-sm text-gray-700 mb-1"><strong>Jornada Vinculada:</strong> {{ $employee->shift->name ?? 'NENHUMA JORNADA DEFINIDA' }}</p>
-                        <p class="text-sm text-gray-700"><strong>Mês de Apuração:</strong> <span class="capitalize">{{ $period }}</span></p>
+                        <p class="text-sm text-gray-700"><strong>Mês Exibido:</strong> <span class="capitalize font-bold text-indigo-700">{{ $period }}</span></p>
                     </div>
                     
                     <div class="grid grid-cols-2 gap-4">

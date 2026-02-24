@@ -16,9 +16,9 @@ class TimeCalculationService
         $isWeekend = $dateObj->isWeekend();
         
         // 1. Pega as batidas físicas do relógio neste dia
-        // Usamos DATE() para ignorar diferenças de horas e comparar apenas a data pura
+        // Usamos whereDate que é nativo e à prova de falhas de fuso horário
         $punches = $employee->punchLogs()
-            ->whereRaw("DATE(punch_time) = ?", [$dateObj->format('Y-m-d')])
+            ->whereDate('punch_time', $dateObj->format('Y-m-d'))
             ->orderBy('punch_time', 'asc')
             ->get();
 
