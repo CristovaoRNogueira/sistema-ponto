@@ -18,9 +18,8 @@ class DeviceCommandService
             throw new \Exception("Sem IP configurado.");
         }
 
-        // Força bruta para ignorar SSL e Cabeçalhos estritos
         $response = Http::withOptions([
-                'verify' => false, // Ignora o erro 60 do SSL
+                'verify' => false, 
             ])
             ->withHeaders([
                 'Content-Type' => 'application/json',
@@ -47,9 +46,12 @@ class DeviceCommandService
     {
         try {
             $session = $this->authenticate($device);
-            $url = "https://{$device->ip_address}/{$endpoint}?session={$session}";
+            
+            // =========================================================
+            // AQUI ESTÁ A MUDANÇA: A URL com o session e o mode=671
+            // =========================================================
+            $url = "https://{$device->ip_address}/{$endpoint}?session={$session}&mode=671";
 
-            // A MÁGICA AQUI: Vai gravar no log o que estamos tentando enviar
             Log::info("==== PAYLOAD ENVIADO PARA {$endpoint} ====", $payload);
 
             $response = Http::withOptions([
@@ -73,51 +75,63 @@ class DeviceCommandService
         }
     }
 
+    /**
+     * Envia um funcionário individual para o relógio
+     */
     public function sendEmployeeToDevice(Employee $employee, Device $device)
     {
         $cpfLimpo = preg_replace('/[^0-9]/', '', $employee->cpf ?? '');
-        $pisLimpo = preg_replace('/[^0-9]/', '', (string)$employee->pis);
         
-        if (strlen($pisLimpo) !== 11) {
-            $pisLimpo = '00000000000';
+        $userData = [
+            'name' => substr($employee->name, 0, 50),
+            'cpf' => (int) $cpfLimpo, // Transformado em Inteiro
+        ];
+
+        if (!empty($employee->registration_number)) {
+            $userData['registration'] = (int) $employee->registration_number; // Transformado em Inteiro
         }
 
         return $this->sendCommand($device, 'add_users.fcgi', [
-            'users' => [[
-                'admin' => false,
-                'name' => substr($employee->name, 0, 50),
-                'pis' => $pisLimpo,
-                'cpf' => $cpfLimpo,
-                'registration' => (string) $employee->registration_number,
-            ]]
+            'users' => [$userData]
         ]);
     }
 
+    /**
+     * Atualiza um funcionário individual no relógio
+     */
     public function updateEmployeeOnDevice(Employee $employee, Device $device)
     {
         $cpfLimpo = preg_replace('/[^0-9]/', '', $employee->cpf ?? '');
-        $pisLimpo = preg_replace('/[^0-9]/', '', (string)$employee->pis);
-        
-        if (strlen($pisLimpo) !== 11) {
-            $pisLimpo = '00000000000';
+
+        $userData = [
+            'name' => substr($employee->name, 0, 50),
+            'cpf' => (int) $cpfLimpo, // Transformado em Inteiro
+        ];
+
+        if (!empty($employee->registration_number)) {
+            $userData['registration'] = (int) $employee->registration_number; // Transformado em Inteiro
         }
 
         return $this->sendCommand($device, 'update_users.fcgi', [
-            'users' => [[
-                'admin' => false,
-                'name' => substr($employee->name, 0, 50),
-                'pis' => $pisLimpo,
-                'cpf' => $cpfLimpo,
-                'registration' => (string) $employee->registration_number,
-            ]]
+            'users' => [$userData]
         ]);
     }
 
+    /**
+     * Remove um funcionário do relógio
+     */
     public function removeEmployeeFromDevice(Employee $employee, Device $device)
     {
-        return $this->sendCommand($device, 'remove_users.fcgi', ['users' => [(int) $employee->pis]]);
+        $cpfLimpo = preg_replace('/[^0-9]/', '', $employee->cpf ?? '');
+        
+        return $this->sendCommand($device, 'remove_users.fcgi', [
+            'users' => [(int) $cpfLimpo]
+        ]);
     }
 
+    /**
+     * Sincronização em Lote (Botão azul de Sincronizar)
+     */
     public function syncUsersBatch(Device $device, array $usersPayload)
     {
         return $this->sendCommand($device, 'add_users.fcgi', ['users' => $usersPayload]);

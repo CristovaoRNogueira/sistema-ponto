@@ -70,26 +70,33 @@ class DeviceController extends Controller
         $usersPayload = [];
         foreach ($employees as $emp) {
             $cpfLimpo = preg_replace('/[^0-9]/', '', $emp->cpf ?? '');
-            $pisLimpo = preg_replace('/[^0-9]/', '', (string)$emp->pis);
             
-            // Se o PIS não tiver exatos 11 dígitos, usamos o bypass de 11 zeros (Regra Control iD 671)
-            if (strlen($pisLimpo) !== 11) {
-                $pisLimpo = '00000000000';
+            // Segurança: Pula servidores sem CPF para não quebrar a carga do relógio
+            if (empty($cpfLimpo) || strlen($cpfLimpo) !== 11) {
+                continue; 
             }
 
-            $usersPayload[] = [
+            $userData = [
                 'name' => substr($emp->name, 0, 50),
-                'pis' => $pisLimpo,
-                'cpf' => $cpfLimpo, // O CPF vai no seu lugar correto!
-                'registration' => (string) $emp->registration_number,
+                'cpf' => (int) $cpfLimpo, // Inteiro!
             ];
+
+            if (!empty($emp->registration_number)) {
+                $userData['registration'] = (int) $emp->registration_number; // Inteiro!
+            }
+
+            $usersPayload[] = $userData;
         }
 
-        // Dispara o comando direto para o IP do equipamento!
+        if (empty($usersPayload)) {
+            return back()->with('error', 'Nenhum servidor possui um CPF válido (11 dígitos) para envio.');
+        }
+
+        // Envia o array inteiro para a placa
         $response = $commandService->syncUsersBatch($device, $usersPayload);
 
         if ($response !== false) {
-            return back()->with('success', count($employees) . ' servidores injetados no relógio ' . $device->name);
+            return back()->with('success', count($usersPayload) . ' servidores injetados no relógio ' . $device->name);
         } else {
             return back()->with('error', 'Falha ao conectar. Verifique se o Endereço IP está correto e se o relógio está na mesma rede.');
         }
