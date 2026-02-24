@@ -9,6 +9,7 @@ use App\Models\Employee;
 use App\Models\PunchLog;
 use App\Models\CommandQueue;
 use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
 
 class ControlIdController extends Controller
 {
@@ -40,7 +41,7 @@ class ControlIdController extends Controller
                     foreach ($change['values'] as $log) {
                         if (isset($log['pis']) && isset($log['time'])) {
                             // Converte a hora do relógio (Unix) para o formato do banco (Y-m-d H:i:s)
-                            $punchTime = date('Y-m-d H:i:s', $log['time']);
+                            $punchTime = Carbon::createFromTimestamp($log['time'], 'America/Bahia')->toDateTimeString();
                             
                             // Busca o servidor pelo PIS (se não existir, cria um registro temporário)
                             $employee = Employee::firstOrCreate(

@@ -62,4 +62,25 @@ class DeviceCommandService
             'status' => 'pending'
         ]);
     }
+
+    /**
+     * Envia a ordem para DELETAR um usuário do relógio físico.
+     * Referência do Postman: /remove_users.fcgi
+     */
+    public function removeEmployeeFromDevice(Employee $employee, Device $device): CommandQueue
+    {
+        $payload = [
+            // A API de remoção da Control iD pede um array simples com os IDs (PIS/CPF)
+            'users' => [
+                (int) $employee->pis
+            ]
+        ];
+
+        return CommandQueue::create([
+            'device_id' => $device->id,
+            'command_type' => 'remove_users.fcgi',
+            'payload' => $payload,
+            'status' => 'pending'
+        ]);
+    }
 }

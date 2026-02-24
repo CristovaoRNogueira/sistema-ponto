@@ -1,24 +1,7 @@
 <?php
-
 namespace App\Models;
-
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class Shift extends Model
-{
-    protected $fillable = [
-        'name', 
-        'in_1', 
-        'out_1', 
-        'in_2', 
-        'out_2', 
-        'daily_work_minutes', 
-        'tolerance_minutes'
-    ];
-
-    public function employees(): HasMany
-    {
-        return $this->hasMany(Employee::class);
-    }
+class Shift extends Model {
+    protected $fillable = ['company_id', 'name', 'in_1', 'out_1', 'in_2', 'out_2', 'daily_work_minutes', 'tolerance_minutes'];
 }
