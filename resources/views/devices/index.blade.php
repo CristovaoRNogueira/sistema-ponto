@@ -90,10 +90,25 @@
                                     @if($dev->ip_address)
                                         <button type="submit" class="text-white bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded-md text-xs font-bold transition flex items-center shadow-sm">
                                             <svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-                                            Sincronizar (IP)
+                                            Sincronizar
                                         </button>
                                     @else
                                         <button type="button" disabled class="text-white bg-gray-400 px-3 py-1.5 rounded-md text-xs font-bold flex items-center cursor-not-allowed shadow-sm" title="Preencha o IP para sincronizar">
+                                            <svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                                            Sem IP
+                                        </button>
+                                    @endif
+                                </form>
+
+                                <form action="{{ route('devices.import', $dev->id) }}" method="POST" onsubmit="return confirm('Importar servidores deste relógio para o sistema? Funcionários que já existem não serão duplicados.')">
+                                    @csrf
+                                    @if($dev->ip_address)
+                                        <button type="submit" class="text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded-md text-xs font-bold transition flex items-center shadow-sm" title="Puxar dados do relógio">
+                                            <svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                                            Importar
+                                        </button>
+                                    @else
+                                        <button type="button" disabled class="text-white bg-gray-400 px-3 py-1.5 rounded-md text-xs font-bold flex items-center cursor-not-allowed shadow-sm">
                                             <svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
                                             Sem IP
                                         </button>

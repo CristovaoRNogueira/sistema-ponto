@@ -4,6 +4,10 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\EmployeeController;
+use App\Http\Controllers\DepartmentController;
+use App\Http\Controllers\JobTitleController;
+use App\Http\Controllers\ShiftController;
+use App\Http\Controllers\DeviceController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -26,7 +30,6 @@ Route::middleware('auth')->group(function () {
         Route::get('/admin/employees/create', [EmployeeController::class, 'create'])->name('employees.create');
         Route::post('/admin/employees', [EmployeeController::class, 'store'])->name('employees.store');
         
-        // --- NOVAS ROTAS ADICIONADAS AQUI ---
         Route::get('/admin/employees/{employee}/edit', [EmployeeController::class, 'edit'])->name('employees.edit');
         Route::put('/admin/employees/{employee}', [EmployeeController::class, 'update'])->name('employees.update');
         Route::delete('/admin/employees/{employee}', [EmployeeController::class, 'destroy'])->name('employees.destroy');
@@ -38,10 +41,18 @@ Route::middleware('auth')->group(function () {
         Route::get('/admin/employees/{employee}/timesheet', [AdminController::class, 'reportTimesheet'])->name('admin.timesheet.report');
 
         // ----- CADASTROS BASE -----
-        Route::resource('/admin/departments', App\Http\Controllers\DepartmentController::class)->only(['index', 'store', 'destroy']);
-        Route::resource('/admin/job-titles', App\Http\Controllers\JobTitleController::class)->only(['index', 'store', 'destroy']);
-        Route::resource('/admin/shifts', App\Http\Controllers\ShiftController::class)->only(['index', 'store', 'destroy']);
-        Route::resource('/admin/devices', App\Http\Controllers\DeviceController::class)->only(['index', 'store', 'destroy']);
+        Route::resource('/admin/departments', DepartmentController::class)->only(['index', 'store', 'destroy']);
+        Route::resource('/admin/job-titles', JobTitleController::class)->only(['index', 'store', 'destroy']);
+        Route::resource('/admin/shifts', ShiftController::class)->only(['index', 'store', 'destroy']);
+        Route::resource('/admin/devices', DeviceController::class)->only(['index', 'store', 'destroy']);
+
+        // Rotas de Tratamento de Ponto
+        Route::post('/timesheet/{employee}/manual-punch', [EmployeeController::class, 'storeManualPunch'])->name('timesheet.manual-punch');
+        Route::post('/timesheet/{employee}/absence', [EmployeeController::class, 'storeAbsence'])->name('timesheet.absence');
+
+        // Rota de Bulk Sync e Importação (Sincronização do Relógio)
+        Route::post('/devices/{device}/sync', [DeviceController::class, 'syncEmployees'])->name('devices.sync');
+        Route::post('/devices/{device}/import', [DeviceController::class, 'importEmployees'])->name('devices.import');
     });
 
     // Perfil do Breeze
@@ -49,12 +60,6 @@ Route::middleware('auth')->group(function () {
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
-    // Rotas de Tratamento de Ponto
-Route::post('/timesheet/{employee}/manual-punch', [\App\Http\Controllers\EmployeeController::class, 'storeManualPunch'])->name('timesheet.manual-punch');
-Route::post('/timesheet/{employee}/absence', [\App\Http\Controllers\EmployeeController::class, 'storeAbsence'])->name('timesheet.absence');
-
-// Rota de Bulk Sync (Sincronização do Relógio)
-Route::post('/devices/{device}/sync', [\App\Http\Controllers\DeviceController::class, 'syncEmployees'])->name('devices.sync');
 });
 
 require __DIR__.'/auth.php';
