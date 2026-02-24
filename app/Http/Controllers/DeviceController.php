@@ -69,15 +69,19 @@ class DeviceController extends Controller
 
         $usersPayload = [];
         foreach ($employees as $emp) {
-            // Limpa tudo que não for número e preenche com zeros à esquerda até dar 11 dígitos
+            $cpfLimpo = preg_replace('/[^0-9]/', '', $emp->cpf ?? '');
             $pisLimpo = preg_replace('/[^0-9]/', '', (string)$emp->pis);
-            $pisFormatado = str_pad($pisLimpo, 11, '0', STR_PAD_LEFT);
+            
+            // Se o PIS não tiver exatos 11 dígitos, usamos o bypass de 11 zeros (Regra Control iD 671)
+            if (strlen($pisLimpo) !== 11) {
+                $pisLimpo = '00000000000';
+            }
 
             $usersPayload[] = [
                 'name' => substr($emp->name, 0, 50),
-                'pis' => $pisFormatado,
+                'pis' => $pisLimpo,
+                'cpf' => $cpfLimpo, // O CPF vai no seu lugar correto!
                 'registration' => (string) $emp->registration_number,
-                'cpf' => preg_replace('/[^0-9]/', '', $emp->cpf ?? $emp->pis), 
             ];
         }
 

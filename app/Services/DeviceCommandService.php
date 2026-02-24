@@ -49,6 +49,9 @@ class DeviceCommandService
             $session = $this->authenticate($device);
             $url = "https://{$device->ip_address}/{$endpoint}?session={$session}";
 
+            // A MÁGICA AQUI: Vai gravar no log o que estamos tentando enviar
+            Log::info("==== PAYLOAD ENVIADO PARA {$endpoint} ====", $payload);
+
             $response = Http::withOptions([
                     'verify' => false, 
                 ])
@@ -59,13 +62,12 @@ class DeviceCommandService
                 ->post($url, $payload);
 
             if (!$response->successful()) {
-                Log::error("Erro {$endpoint} IP {$device->ip_address}: " . $response->body());
+                Log::error("Erro no comando {$endpoint} para {$device->ip_address}: " . $response->body());
                 return false;
             }
 
             return $response->json();
         } catch (\Exception $e) {
-            // Salva o erro exato no log do Laravel para investigarmos se falhar
             Log::error("FALHA DE SINCRONIZAÇÃO ({$device->name}): " . $e->getMessage());
             return false;
         }
@@ -73,14 +75,18 @@ class DeviceCommandService
 
     public function sendEmployeeToDevice(Employee $employee, Device $device)
     {
-        $cpfLimpo = preg_replace('/[^0-9]/', '', $employee->cpf ?? $employee->pis);
-        $pisFormatado = str_pad(preg_replace('/[^0-9]/', '', (string)$employee->pis), 11, '0', STR_PAD_LEFT);
+        $cpfLimpo = preg_replace('/[^0-9]/', '', $employee->cpf ?? '');
+        $pisLimpo = preg_replace('/[^0-9]/', '', (string)$employee->pis);
         
+        if (strlen($pisLimpo) !== 11) {
+            $pisLimpo = '00000000000';
+        }
+
         return $this->sendCommand($device, 'add_users.fcgi', [
             'users' => [[
                 'admin' => false,
                 'name' => substr($employee->name, 0, 50),
-                'pis' => $pisFormatado,
+                'pis' => $pisLimpo,
                 'cpf' => $cpfLimpo,
                 'registration' => (string) $employee->registration_number,
             ]]
@@ -89,14 +95,18 @@ class DeviceCommandService
 
     public function updateEmployeeOnDevice(Employee $employee, Device $device)
     {
-        $cpfLimpo = preg_replace('/[^0-9]/', '', $employee->cpf ?? $employee->pis);
-        $pisFormatado = str_pad(preg_replace('/[^0-9]/', '', (string)$employee->pis), 11, '0', STR_PAD_LEFT);
+        $cpfLimpo = preg_replace('/[^0-9]/', '', $employee->cpf ?? '');
+        $pisLimpo = preg_replace('/[^0-9]/', '', (string)$employee->pis);
+        
+        if (strlen($pisLimpo) !== 11) {
+            $pisLimpo = '00000000000';
+        }
 
         return $this->sendCommand($device, 'update_users.fcgi', [
             'users' => [[
                 'admin' => false,
                 'name' => substr($employee->name, 0, 50),
-                'pis' => $pisFormatado,
+                'pis' => $pisLimpo,
                 'cpf' => $cpfLimpo,
                 'registration' => (string) $employee->registration_number,
             ]]
