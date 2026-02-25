@@ -14,7 +14,6 @@ use App\Models\PunchLog;
 use App\Models\Absence;
 use Carbon\Carbon;
 
-
 class EmployeeController extends Controller
 {
     public function __construct(
@@ -43,7 +42,25 @@ class EmployeeController extends Controller
             }
         }
 
-        $employees = $query->orderBy('name')->paginate(15);
+        // NOVO: Filtro de Pesquisa (Nome, CPF ou PIS)
+        if ($request->filled('search')) {
+            $search = $request->search;
+            // Remove máscara de CPF/PIS caso o usuário digite com pontos e traços
+            $searchClean = preg_replace('/[^0-9]/', '', $search);
+
+            $query->where(function($q) use ($search, $searchClean) {
+                $q->where('name', 'like', "%{$search}%");
+                
+                // Se a pessoa digitou apenas números/documento, procura em CPF ou PIS
+                if (!empty($searchClean)) {
+                    $q->orWhere('cpf', 'like', "%{$searchClean}%")
+                      ->orWhere('pis', 'like', "%{$searchClean}%");
+                }
+            });
+        }
+
+        // withQueryString() garante que os filtros (departamento e pesquisa) continuem ativos ao mudar de página
+        $employees = $query->orderBy('name')->paginate(15)->withQueryString();
         
         // Puxa o Organograma para desenhar o Menu Lateral na view index
         $secretariats = Department::where('company_id', $companyId)
@@ -227,7 +244,7 @@ class EmployeeController extends Controller
 
         Absence::create([
             'employee_id' => $employee->id,
-            'type' => 'medical_certificate', // <-- LINHA ADICIONADA AQUI!
+            'type' => 'medical_certificate', 
             'start_date' => $request->start_date,
             'end_date' => $request->end_date,
             'reason' => $request->reason,
