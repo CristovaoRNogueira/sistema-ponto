@@ -25,6 +25,7 @@ Route::middleware('auth')->group(function () {
         
         // 1. Dashboard (Apenas Gráficos)
         Route::get('/dashboard', [AdminController::class, 'index'])->name('dashboard');
+        Route::get('/admin/export/monthly', [AdminController::class, 'exportMonthlyClosing'])->name('admin.export.monthly');
         
         // 2. Gestão de Servidores (Telas Separadas)
         Route::get('/admin/employees', [EmployeeController::class, 'index'])->name('employees.index');

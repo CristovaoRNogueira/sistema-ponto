@@ -220,4 +220,100 @@ class AdminController extends Controller
     private function formatMinutes(int $totalMinutes): string {
         return sprintf('%02d:%02d', floor($totalMinutes / 60), $totalMinutes % 60);
     }
+
+    // --- GERAÇÃO DO FECHAMENTO MENSAL EM LOTE (EXCEL/CSV) ---
+    public function exportMonthlyClosing(Request $request, TimeCalculationService $calcService)
+    {
+        $companyId = Auth::user()->company_id;
+        $month = $request->input('month', Carbon::now()->month);
+        $year = $request->input('year', Carbon::now()->year);
+
+        $startDate = Carbon::createFromDate($year, $month, 1)->startOfMonth();
+        $endDate = $startDate->copy()->endOfMonth();
+        
+        // Se o mês ainda não acabou, calcula só até o dia de hoje
+        if ($endDate->isFuture()) {
+            $endDate = Carbon::today();
+        }
+
+        $employees = Employee::where('company_id', $companyId)
+            ->where('is_active', true)
+            ->with('department')
+            ->orderBy('name')
+            ->get();
+
+        $fileName = "fechamento_ponto_{$month}_{$year}.csv";
+        
+        $headers = [
+            "Content-type"        => "text/csv; charset=UTF-8",
+            "Content-Disposition" => "attachment; filename=$fileName",
+            "Pragma"              => "no-cache",
+            "Cache-Control"       => "must-revalidate, post-check=0, pre-check=0",
+            "Expires"             => "0"
+        ];
+
+        // Colunas do cabeçalho do Excel
+        $columns = ['Matricula', 'Nome do Servidor', 'CPF', 'Secretaria/Lotacao', 'Dias Trabalhados', 'Dias Falta', 'Horas Extras (+)', 'Atrasos/Faltas (-)', 'Saldo Liquido (Banco)'];
+
+        // Função de streaming (processa e baixa o ficheiro em tempo real sem sobrecarregar a memória RAM)
+        $callback = function() use($employees, $startDate, $endDate, $columns, $calcService) {
+            $file = fopen('php://output', 'w');
+            
+            // Adiciona BOM (Byte Order Mark) para o Excel abrir os acentos e "ç" do Português de forma perfeita
+            fputs($file, $bom = (chr(0xEF) . chr(0xBB) . chr(0xBF)));
+            
+            // Delimitador Ponto e Vírgula (;) é o padrão do Excel no Brasil/Portugal
+            fputcsv($file, $columns, ';');
+
+            foreach ($employees as $emp) {
+                $diasTrabalhados = 0;
+                $faltas = 0;
+                $bancoMinutos = 0;
+                $extrasMinutos = 0;
+                $atrasosMinutos = 0;
+
+                // Percorre os dias do mês do servidor
+                for ($date = $startDate->copy(); $date->lte($endDate); $date->addDay()) {
+                    $daily = $calcService->calculateDailyTimesheet($emp, $date->format('Y-m-d'));
+                    
+                    if ($daily['worked_formatted'] !== '00:00') {
+                        $diasTrabalhados++;
+                    }
+                    
+                    // Lógica de falta injustificada
+                    if ($daily['status'] === 'absence' || ($daily['worked_formatted'] === '00:00' && !$daily['is_weekend'] && $daily['status'] !== 'holiday' && $daily['status'] !== 'justified' && $daily['status'] !== 'day_off')) {
+                        $faltas++;
+                    }
+
+                    if ($daily['balance_minutes'] > 0) {
+                        $extrasMinutos += $daily['balance_minutes'];
+                    } elseif ($daily['balance_minutes'] < 0) {
+                        $atrasosMinutos += abs($daily['balance_minutes']);
+                    }
+                    $bancoMinutos += $daily['balance_minutes'];
+                }
+
+                // Funções auxiliares para formatar os minutos em formato de horas "HH:MM"
+                $formatMin = fn($min) => sprintf('%02d:%02d', floor($min / 60), $min % 60);
+                $formatSaldo = fn($min) => ($min < 0 ? '-' : '+') . sprintf('%02d:%02d', abs(intdiv($min, 60)), abs($min % 60));
+
+                $row = [
+                    $emp->registration_number ?? 'S/N',
+                    $emp->name,
+                    $emp->cpf,
+                    $emp->department->name ?? 'Sem Lotação',
+                    $diasTrabalhados,
+                    $faltas,
+                    $formatMin($extrasMinutos),
+                    $formatMin($atrasosMinutos),
+                    $formatSaldo($bancoMinutos)
+                ];
+                
+                fputcsv($file, $row, ';');
+            }
+            fclose($file);
+        };
+
+        return response()->stream($callback, 200, $headers);
+    }
 }
