@@ -12,41 +12,66 @@ use App\Models\Absence;
 use App\Models\ShiftException;
 use App\Services\DeviceCommandService;
 use App\Services\TimeCalculationService;
+use App\Services\DashboardService; // <- NOVO SERVIÇO IMPORTADO
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
 
 class AdminController extends Controller
 {
     public function __construct(
-        private readonly DeviceCommandService $commandService
+        private readonly DeviceCommandService $commandService,
+        private readonly DashboardService $dashboardService // <- INJETADO NO CONSTRUTOR
     ) {}
 
-    public function index()
+    // A NOVA FUNÇÃO INDEX (DASHBOARD INTELIGENTE)
+    public function index(Request $request)
     {
         $companyId = Auth::user()->company_id;
 
-        // Traz as últimas batidas
+        // Captura os filtros de período e departamento
+        $month = $request->input('month', Carbon::now()->month);
+        $year = $request->input('year', Carbon::now()->year);
+        $departmentId = $request->input('department_id');
+
+        $startDate = Carbon::createFromDate($year, $month, 1)->startOfMonth();
+        $endDate = $startDate->copy()->endOfMonth();
+
+        // Traz as secretarias para popular o menu <select> de filtro
+        $secretariats = Department::where('company_id', $companyId)
+            ->whereNull('parent_id')
+            ->orderBy('name')
+            ->get();
+
+        // 1. Gráficos Básicos (Lotação de Servidores)
+        $deptDistribution = $this->dashboardService->getEmployeesByDepartment($companyId, $departmentId);
+        $chartLabels = $deptDistribution->map(fn($d) => $d->department->name ?? 'Sem Setor')->toArray();
+        $chartData = $deptDistribution->map(fn($d) => $d->total)->toArray();
+        $totalEmployees = array_sum($chartData);
+
+        // 2. Feed de Últimas Batidas Brutas
         $punches = PunchLog::with(['employee', 'device'])
-                    ->whereHas('employee', function($q) use ($companyId) {
-                        $q->where('company_id', $companyId);
-                    })
-                    ->orderBy('punch_time', 'desc') 
-                    ->take(20)
-                    ->get();
-        
-        $totalEmployees = Employee::where('company_id', $companyId)->where('is_active', true)->count();
-        $offlineDevices = 0; 
-        
-        // Simulação de Gráfico
-        $chartLabels = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex'];
-        $chartPresences = [42, 45, 40, 48, 41]; 
-        $chartAbsences = [3, 0, 5, 1, 4];
+            ->whereHas('employee', function($q) use ($companyId, $departmentId) {
+                $q->where('company_id', $companyId);
+                if ($departmentId) $q->where('department_id', $departmentId);
+            })
+            ->orderBy('punch_time', 'desc') 
+            ->take(8)
+            ->get();
+
+        // 3. Atestados Ativos
+        $absences = $this->dashboardService->getActiveAbsences($companyId, $startDate, $endDate, $departmentId);
+
+        // 4. Rankings Inteligentes (Cacheado por 1 hora)
+        $rankings = $this->dashboardService->getConsolidatedRankings($companyId, $startDate, $endDate, $departmentId);
 
         return view('dashboard', compact(
-            'punches', 'totalEmployees', 'offlineDevices', 
-            'chartLabels', 'chartPresences', 'chartAbsences'
+            'month', 'year', 'departmentId', 'secretariats', 
+            'totalEmployees', 'chartLabels', 'chartData', 'punches',
+            'absences', 'rankings'
         ));
     }
+
+    // --- DAQUI PARA BAIXO, TUDO É O SEU CÓDIGO ORIGINAL INTACTO ---
 
     public function storeEmployee(Request $request)
     {
@@ -59,7 +84,6 @@ class AdminController extends Controller
 
         $companyId = Auth::user()->company_id;
 
-        // Usa forceFill para gravar o company_id sem precisar alterar o Model agora
         $employee = new Employee();
         $employee->forceFill([
             'company_id' => $companyId,
@@ -72,9 +96,7 @@ class AdminController extends Controller
             'is_active' => true,
         ])->save();
 
-        // Pega o relógio garantindo que pertence à mesma empresa
         $device = Device::where('company_id', $companyId)->findOrFail($request->device_id);
-
         $this->commandService->sendEmployeeToDevice($employee, $device);
 
         return redirect()->back()->with('success', 'Servidor registrado e enviado ao relógio!');
@@ -84,7 +106,6 @@ class AdminController extends Controller
     {
         $request->validate(['device_id' => 'required|exists:devices,id']);
         
-        // Proteção Multiempresa
         if ($employee->company_id !== Auth::user()->company_id) {
             abort(403, 'Acesso negado.');
         }
@@ -105,7 +126,6 @@ class AdminController extends Controller
             'reason' => 'required|string',
         ]);
 
-        // Proteção
         $employee = Employee::where('company_id', Auth::user()->company_id)->findOrFail($request->employee_id);
 
         Absence::create([
