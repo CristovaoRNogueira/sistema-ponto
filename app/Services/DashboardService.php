@@ -16,7 +16,6 @@ class DashboardService
         private TimeCalculationService $timeService
     ) {}
 
-    // 1. Gráfico e Cards de Lotação (Super rápido, vai direto no banco)
     public function getEmployeesByDepartment($companyId, $departmentId = null)
     {
         $query = Employee::where('company_id', $companyId)->where('is_active', true);
@@ -29,7 +28,6 @@ class DashboardService
             ->get();
     }
 
-    // 4. Atestados Ativos (Vai direto no banco)
     public function getActiveAbsences($companyId, Carbon $startDate, Carbon $endDate, $departmentId = null)
     {
         $query = Absence::with(['employee:id,name,department_id', 'employee.department:id,name'])
@@ -48,28 +46,30 @@ class DashboardService
         return $query->orderBy('start_date', 'desc')->paginate(10, ['*'], 'absences_page');
     }
 
-    // 2, 3 e 5. Rankings Complexos (Usa seu motor atual com CACHE)
     public function getConsolidatedRankings($companyId, Carbon $startDate, Carbon $endDate, $departmentId = null)
     {
-        // Chave única para o cache baseada no mês, ano e filtro
         $cacheKey = "dash_rankings_{$companyId}_{$startDate->format('Ym')}_{$departmentId}";
 
-        // Guarda o resultado na memória por 60 minutos
         return Cache::remember($cacheKey, now()->addMinutes(60), function () use ($companyId, $startDate, $endDate, $departmentId) {
             
+            // CORREÇÃO 1: Analisa apenas até ONTEM para não dar "falsa falta" no dia de hoje
+            $limitDate = $endDate->isFuture() ? Carbon::yesterday() : clone $endDate;
+            
+            // Se hoje for dia 1º, "ontem" cai no mês passado. Logo, retorna zerado para não dar erro.
+            if ($limitDate->lt($startDate)) {
+                return [ 'delays' => [], 'absences' => [], 'bankHours' => [], 'working_days' => 0 ];
+            }
+
             $query = Employee::where('company_id', $companyId)->where('is_active', true)->with('department:id,name');
             if ($departmentId) $query->where('department_id', $departmentId);
-            
             $employees = $query->get();
             
+            $diasUteisMes = $startDate->diffInDaysFiltered(fn(Carbon $d) => !$d->isWeekend(), $limitDate);
+            if ($diasUteisMes == 0) $diasUteisMes = 1;
+
             $delays = [];
             $absences = [];
             $bankHours = [];
-
-            // Limita a contagem até o dia de hoje (não contar faltas amanhã)
-            $limitDate = $endDate->isFuture() ? Carbon::today() : $endDate;
-            $diasUteisMes = $startDate->diffInDaysFiltered(fn(Carbon $d) => !$d->isWeekend(), $limitDate);
-            if ($diasUteisMes == 0) $diasUteisMes = 1; // Evita divisão por zero
 
             foreach ($employees as $emp) {
                 $totalAtrasosMin = 0;
@@ -78,30 +78,32 @@ class DashboardService
                 $bancoHorasMin = 0;
                 $ultimaFalta = null;
                 $ultimoAtraso = null;
+                $diasTrabalhados = 0; 
 
-                // Faz um loop pelos dias do mês
                 for ($date = $startDate->copy(); $date->lte($limitDate); $date->addDay()) {
                     
-                    // CORREÇÃO AQUI: Chama o método correto passando a data como string 'Y-m-d'
                     $report = $this->timeService->calculateDailyTimesheet($emp, $date->format('Y-m-d'));
 
-                    if ($report['status'] === 'absence' || ($report['worked_formatted'] == '00:00' && !$report['is_weekend'] && $report['status'] != 'holiday' && $report['status'] != 'justified')) {
+                    if ($report['worked_formatted'] !== '00:00') {
+                        $diasTrabalhados++;
+                    }
+
+                    // CORREÇÃO 2: Código simplificado confiando 100% no motor de cálculo (FALTA INTEGRAL)
+                    if ($report['status'] === 'absence') {
                         $diasFalta++;
                         $ultimaFalta = $date->format('d/m/Y');
                     }
 
-                    if ($report['status'] === 'delay' && $report['balance_minutes'] < 0) {
-                        // Como seu motor retorna balance_minutes negativo para atraso, usamos abs() para somar os minutos perdidos
+                    // CORREÇÃO 3: Confia 100% no motor (ATRASO / SAÍDA)
+                    if ($report['status'] === 'delay') {
                         $totalAtrasosMin += abs($report['balance_minutes']);
                         $qtdAtrasos++;
                         $ultimoAtraso = $date->format('d/m/Y');
                     }
 
-                    // Soma o saldo do dia (Positivo é extra, Negativo é atraso)
                     $bancoHorasMin += $report['balance_minutes'];
                 }
 
-                // 2. Monta Ranking de Atrasos
                 if ($qtdAtrasos > 0) {
                     $delays[] = [
                         'employee' => $emp,
@@ -113,22 +115,20 @@ class DashboardService
                     ];
                 }
 
-                // 3. Monta Ranking de Sem Registro (Faltas)
                 if ($diasFalta >= 1) {
                     $absences[] = [
                         'employee' => $emp,
                         'days' => $diasFalta,
                         'last' => $ultimaFalta,
-                        'critical' => $diasFalta >= 3 // Destaca mais de 3 faltas
+                        'never_clocked_in' => ($diasTrabalhados === 0),
+                        'critical' => $diasFalta >= 3
                     ];
                 }
 
-                // 5. Monta Banco de Horas
                 if ($bancoHorasMin != 0) {
                     $bankHours[] = [
                         'employee' => $emp,
                         'balance_min' => $bancoHorasMin,
-                        // Mais de 40h (+2400 min) ou devendo 20h (-1200 min)
                         'critical_positive' => $bancoHorasMin > 2400,
                         'critical_negative' => $bancoHorasMin < -1200, 
                         'formatted' => ($bancoHorasMin < 0 ? '-' : '+') . sprintf('%02d:%02d', abs(intdiv($bancoHorasMin, 60)), abs($bancoHorasMin % 60))
@@ -136,15 +136,15 @@ class DashboardService
                 }
             }
 
-            // Ordenações
             usort($delays, fn($a, $b) => $b['qtd'] <=> $a['qtd']);
             usort($absences, fn($a, $b) => $b['days'] <=> $a['days']);
-            usort($bankHours, fn($a, $b) => $a['balance_min'] <=> $b['balance_min']); // Do mais negativo pro mais positivo
+            usort($bankHours, fn($a, $b) => $a['balance_min'] <=> $b['balance_min']); 
 
             return [
-                'delays' => array_slice($delays, 0, 10), // Pega o Top 10
-                'absences' => array_slice($absences, 0, 10),
-                'bankHours' => array_slice($bankHours, 0, 10)
+                'delays' => $delays,
+                'absences' => $absences,
+                'bankHours' => $bankHours,
+                'working_days' => $diasUteisMes
             ];
         });
     }

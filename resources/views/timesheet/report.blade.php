@@ -80,6 +80,15 @@
                 </form>
             </div>
 
+            @php
+                $diasFaltaIntegral = 0;
+                foreach($report as $day) {
+                    if ($day['status'] === 'absence' || ($day['status'] === 'delay' && $day['worked_formatted'] === '00:00' && !$day['is_weekend'] && $day['status'] !== 'holiday' && $day['status'] !== 'justified')) {
+                        $diasFaltaIntegral++;
+                    }
+                }
+            @endphp
+
             <div class="bg-white p-6 shadow-sm sm:rounded-lg border border-gray-200 print:shadow-none print:border-b-2 print:border-gray-800 print:rounded-none">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
@@ -87,6 +96,7 @@
                         <p class="text-sm text-gray-700 mb-1"><strong>Órgão/Empresa:</strong> {{ $employee->company->name ?? 'Prefeitura Municipal' }}</p>
                         <p class="text-sm text-gray-700 mb-1"><strong>CPF:</strong> {{ $employee->cpf }}</p>
                         <p class="text-sm text-gray-700 mb-1"><strong>Departamento:</strong> {{ $employee->department->name ?? 'Não vinculado' }}</p>
+                        
                         @php
                             $effectiveShiftName = 'NENHUMA JORNADA DEFINIDA';
                             $shiftSource = '';
@@ -111,21 +121,25 @@
                                 <span class="text-xs text-gray-500 italic ml-1 print:text-gray-800">{{ $shiftSource }}</span>
                             @endif
                         </p>
-                        <p class="text-sm text-gray-700"><strong>Mês Exibido:</strong> <span class="capitalize font-bold text-indigo-700">{{ $period }}</span></p>
+                        <p class="text-sm text-gray-700 mt-2"><strong>Mês Exibido:</strong> <span class="capitalize font-bold text-indigo-700">{{ $period }}</span></p>
                     </div>
                     
-                    <div class="grid grid-cols-2 gap-4">
-                        <div class="bg-indigo-50 p-4 rounded border border-indigo-100 print:border-gray-300 print:bg-white">
-                            <p class="text-xs text-indigo-600 uppercase font-bold print:text-gray-800">Horas Trabalhadas</p>
-                            <p class="text-2xl font-bold text-indigo-900 print:text-black">{{ $totalsFormatted['worked'] ?? '00:00' }}</p>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div class="bg-indigo-50 p-3 rounded border border-indigo-100 print:border-gray-300 print:bg-white flex flex-col justify-center text-center">
+                            <p class="text-[10px] text-indigo-600 uppercase font-bold print:text-gray-800 leading-tight mb-1">Horas<br>Trabalhadas</p>
+                            <p class="text-xl font-black text-indigo-900 print:text-black">{{ $totalsFormatted['worked'] ?? '00:00' }}</p>
                         </div>
-                        <div class="bg-green-50 p-4 rounded border border-green-100 print:border-gray-300 print:bg-white">
-                            <p class="text-xs text-green-600 uppercase font-bold print:text-gray-800">Saldo Extra Positivo</p>
-                            <p class="text-2xl font-bold text-green-900 print:text-black">{{ $totalsFormatted['overtime'] ?? '00:00' }}</p>
+                        <div class="bg-green-50 p-3 rounded border border-green-100 print:border-gray-300 print:bg-white flex flex-col justify-center text-center">
+                            <p class="text-[10px] text-green-600 uppercase font-bold print:text-gray-800 leading-tight mb-1">Extras<br>(Positivo)</p>
+                            <p class="text-xl font-black text-green-900 print:text-black">{{ $totalsFormatted['overtime'] ?? '00:00' }}</p>
                         </div>
-                        <div class="bg-red-50 p-4 rounded border border-red-100 col-span-2 print:border-gray-300 print:bg-white">
-                            <p class="text-xs text-red-600 uppercase font-bold print:text-gray-800">Atrasos / Faltas (Negativo)</p>
-                            <p class="text-2xl font-bold text-red-900 print:text-black">{{ $totalsFormatted['delay'] ?? '00:00' }}</p>
+                        <div class="bg-orange-50 p-3 rounded border border-orange-100 print:border-gray-300 print:bg-white flex flex-col justify-center text-center">
+                            <p class="text-[10px] text-orange-600 uppercase font-bold print:text-gray-800 leading-tight mb-1">Atrasos<br>(Horas Devidas)</p>
+                            <p class="text-xl font-black text-orange-900 print:text-black">{{ $totalsFormatted['delay'] ?? '00:00' }}</p>
+                        </div>
+                        <div class="bg-red-50 p-3 rounded border border-red-100 print:border-gray-300 print:bg-white flex flex-col justify-center text-center shadow-sm">
+                            <p class="text-[10px] text-red-600 uppercase font-black print:text-gray-800 leading-tight mb-1">Faltas<br>Integrais</p>
+                            <p class="text-xl font-black text-red-900 print:text-black">{{ $diasFaltaIntegral }} <span class="text-xs font-bold text-red-700">dias</span></p>
                         </div>
                     </div>
                 </div>
@@ -150,8 +164,12 @@
                             @foreach($report as $day)
                                 @php
                                     $rowClass = 'bg-white';
-                                    if($day['status'] === 'divergent') {
-                                        $rowClass = 'bg-red-50';
+                                    
+                                    // Pinta a linha de vermelho claro se for Falta Integral
+                                    if($day['status'] === 'absence' || ($day['status'] === 'delay' && $day['worked_formatted'] === '00:00' && !$day['is_weekend'])) {
+                                        $rowClass = 'bg-red-50/70';
+                                    } elseif($day['status'] === 'divergent') {
+                                        $rowClass = 'bg-yellow-50';
                                     } elseif($day['status'] === 'holiday') {
                                         $rowClass = 'bg-blue-50';
                                     } elseif($day['is_weekend']) {
@@ -167,13 +185,23 @@
                                     
                                     <td class="px-4 py-3">
                                         <div class="font-bold text-xs uppercase tracking-wider">
-                                            @if($day['status'] === 'normal') <span class="text-green-600">Normal</span>
-                                            @elseif($day['status'] === 'overtime') <span class="text-green-600">Hora Extra</span>
-                                            @elseif($day['status'] === 'delay') <span class="text-red-600">Atraso/Falta</span>
-                                            @elseif($day['status'] === 'divergent') <span class="text-orange-600">Incompleto</span>
-                                            @elseif($day['status'] === 'day_off') <span class="text-gray-500">Folga / DSR</span>
-                                            @elseif($day['status'] === 'holiday') <span class="text-blue-600">Feriado</span>
-                                            @elseif($day['status'] === 'justified') <span class="text-purple-600">Atestado/Licença</span>
+                                            @if($day['status'] === 'normal') 
+                                                <span class="text-green-600">Normal</span>
+                                            @elseif($day['status'] === 'overtime') 
+                                                <span class="text-green-600">Hora Extra</span>
+                                            
+                                            @elseif($day['status'] === 'absence' || ($day['status'] === 'delay' && $day['worked_formatted'] === '00:00')) 
+                                                <span class="text-red-600 font-black">Falta Integral</span>
+                                            @elseif($day['status'] === 'delay') 
+                                                <span class="text-orange-500 font-bold">Atraso / Saída</span>
+                                            @elseif($day['status'] === 'divergent') 
+                                                <span class="text-yellow-600">Incompleto</span>
+                                            @elseif($day['status'] === 'day_off') 
+                                                <span class="text-gray-500">Folga / DSR</span>
+                                            @elseif($day['status'] === 'holiday') 
+                                                <span class="text-blue-600">Feriado</span>
+                                            @elseif($day['status'] === 'justified') 
+                                                <span class="text-purple-600">Atestado/Licença</span>
                                             @endif
                                         </div>
                                         @if(!empty($day['observation']))
@@ -191,11 +219,13 @@
                                     </td>
                                     
                                     <td class="px-4 py-3 text-right font-bold">
-                                        @if(in_array($day['status'], ['normal', 'overtime', 'delay']))
+                                        @if(in_array($day['status'], ['normal', 'overtime', 'delay', 'absence']))
                                             @if($day['balance_minutes'] > 0)
                                                 <span class="text-green-600">+{{ $day['balance_formatted'] }}</span>
                                             @elseif($day['balance_minutes'] < 0)
-                                                <span class="text-red-600">-{{ $day['balance_formatted'] }}</span>
+                                                <span class="{{ $day['worked_formatted'] === '00:00' ? 'text-red-600' : 'text-orange-600' }}">
+                                                    -{{ $day['balance_formatted'] }}
+                                                </span>
                                             @else
                                                 <span class="text-gray-400">00:00</span>
                                             @endif
@@ -225,13 +255,10 @@
     <x-modal name="add-manual-punch" focusable>
         <form method="POST" action="{{ route('timesheet.manual-punch', $employee->id) }}" class="p-6">
             @csrf
-            <h2 class="text-lg font-bold text-gray-900 mb-2">
-                Inserir Batida Manual
-            </h2>
+            <h2 class="text-lg font-bold text-gray-900 mb-2">Inserir Batida Manual</h2>
             <p class="text-xs text-gray-600 mb-6 bg-yellow-50 border-l-4 border-yellow-400 p-2">
-                <strong>Atenção Portaria 671:</strong> As batidas originais não podem ser apagadas. Esta inclusão será marcada no sistema para fins de auditoria.
+                <strong>Atenção:</strong> As batidas originais não podem ser apagadas. Esta inclusão será marcada no sistema para auditoria.
             </p>
-
             <div class="grid grid-cols-2 gap-4">
                 <div>
                     <x-input-label for="punch_date" value="Data da Batida" />
@@ -242,19 +269,13 @@
                     <x-text-input id="punch_time" name="punch_time" type="time" class="mt-1 block w-full" required />
                 </div>
             </div>
-
             <div class="mt-4">
                 <x-input-label for="justification" value="Justificativa (Motivo)" />
                 <x-text-input id="justification" name="justification" type="text" class="mt-1 block w-full" placeholder="Ex: Esqueceu de bater, Trabalho externo..." required />
             </div>
-
             <div class="mt-6 flex justify-end space-x-3">
-                <x-secondary-button x-on:click="$dispatch('close')">
-                    Cancelar
-                </x-secondary-button>
-                <x-primary-button class="bg-indigo-600 hover:bg-indigo-700">
-                    Salvar Batida
-                </x-primary-button>
+                <x-secondary-button x-on:click="$dispatch('close')">Cancelar</x-secondary-button>
+                <x-primary-button class="bg-indigo-600 hover:bg-indigo-700">Salvar Batida</x-primary-button>
             </div>
         </form>
     </x-modal>
@@ -262,13 +283,10 @@
     <x-modal name="add-absence" focusable>
         <form method="POST" action="{{ route('timesheet.absence', $employee->id) }}" class="p-6">
             @csrf
-            <h2 class="text-lg font-bold text-gray-900 mb-2">
-                Registrar Atestado ou Licença
-            </h2>
+            <h2 class="text-lg font-bold text-gray-900 mb-2">Registrar Atestado ou Licença</h2>
             <p class="text-xs text-gray-600 mb-6 bg-blue-50 border-l-4 border-blue-400 p-2">
-                Os dias cadastrados aqui terão a carga horária abonada automaticamente (não gerarão falta nem saldo negativo no espelho).
+                Os dias cadastrados aqui terão a carga horária abonada automaticamente.
             </p>
-
             <div class="grid grid-cols-2 gap-4">
                 <div>
                     <x-input-label for="start_date" value="Data Inicial" />
@@ -279,19 +297,13 @@
                     <x-text-input id="end_date" name="end_date" type="date" class="mt-1 block w-full" required />
                 </div>
             </div>
-
             <div class="mt-4">
                 <x-input-label for="reason" value="Motivo / CID" />
-                <x-text-input id="reason" name="reason" type="text" class="mt-1 block w-full" placeholder="Ex: Atestado Médico, Licença Paternidade..." required />
+                <x-text-input id="reason" name="reason" type="text" class="mt-1 block w-full" placeholder="Ex: Atestado Médico, Licença..." required />
             </div>
-
             <div class="mt-6 flex justify-end space-x-3">
-                <x-secondary-button x-on:click="$dispatch('close')">
-                    Cancelar
-                </x-secondary-button>
-                <x-primary-button class="bg-purple-600 hover:bg-purple-700">
-                    Registrar Atestado
-                </x-primary-button>
+                <x-secondary-button x-on:click="$dispatch('close')">Cancelar</x-secondary-button>
+                <x-primary-button class="bg-purple-600 hover:bg-purple-700">Registrar Atestado</x-primary-button>
             </div>
         </form>
     </x-modal>

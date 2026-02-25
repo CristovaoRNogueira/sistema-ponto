@@ -16,7 +16,6 @@ class TimeCalculationService
         $isWeekend = $dateObj->isWeekend();
         
         // 1. Pega as batidas físicas do relógio neste dia
-        // Usamos whereDate que é nativo e à prova de falhas de fuso horário
         $punches = $employee->punchLogs()
             ->whereDate('punch_time', $dateObj->format('Y-m-d'))
             ->orderBy('punch_time', 'asc')
@@ -35,7 +34,7 @@ class TimeCalculationService
             }
         }
 
-        // 2. Verifica Atestados / Ausências (Prioridade Máxima)
+        // 2. Verifica Atestados / Ausências
         $absence = Absence::where('employee_id', $employee->id)
             ->whereDate('start_date', '<=', $date)
             ->whereDate('end_date', '>=', $date)
@@ -46,12 +45,12 @@ class TimeCalculationService
             return $this->buildResult($dateObj, $punchTimes, $workedMinutes, 0, 'justified', 'Atestado/Licença', $isWeekend);
         }
 
-        // 3. Verifica Feriados (Procura por Feriados da Prefeitura ou Nacionais)
+        // 3. Verifica Feriados
         $holiday = Holiday::where(function($query) use ($employee) {
                 $query->where('company_id', $employee->company_id)
                       ->orWhereNull('company_id');
             })
-            ->whereDate('date', $date) // Usa a coluna 'date' da sua migration
+            ->whereDate('date', $date)
             ->first();
 
         // 4. Verifica Exceções / Trocas de Plantão
@@ -59,52 +58,64 @@ class TimeCalculationService
             ->whereDate('exception_date', $date)
             ->first();
 
-        // 5. Define o que era "Esperado" para hoje
+        // 5. Define o que era "Esperado" e a Tolerância da Jornada
         $expectedMinutes = 0;
-        $tolerance = 15; // Margem de atraso padrão da prefeitura
+        $tolerance = 15; // Margem padrão
         $observation = '';
 
-        // --- A MÁGICA DA HERANÇA EM CASCATA ---
-        // Tenta pegar a jornada do Servidor -> Se nulo, pega do Departamento -> Se nulo, pega da Secretaria
         $effectiveShift = $employee->shift ?? $employee->department?->shift ?? $employee->department?->parent?->shift;
 
         if ($holiday) {
-            $expectedMinutes = 0; // Feriado não tem expectativa de horas
+            $expectedMinutes = 0; 
             $observation = 'Feriado: ' . $holiday->name;
         } elseif ($exception) {
             if ($exception->type === 'day_off') {
-                $expectedMinutes = 0; // Folga
+                $expectedMinutes = 0; 
                 $observation = 'Folga/Troca compensada';
             } else {
-                $expectedMinutes = $exception->daily_work_minutes; // Plantão Extra ou Trocado
+                $expectedMinutes = $exception->daily_work_minutes; 
                 $observation = 'Plantão de Exceção';
             }
         } elseif ($effectiveShift) {
-            // Regra baseada na jornada herdada ou própria do servidor
             if ($isWeekend) {
-                $expectedMinutes = 0; // Finais de semana não trabalhados
+                $expectedMinutes = 0; 
             } else {
                 $expectedMinutes = $effectiveShift->daily_work_minutes;
+                // AQUI: Pegamos a tolerância exata cadastrada na jornada!
                 $tolerance = $effectiveShift->tolerance_minutes;
             }
         } else {
             $observation = 'Sem Jornada Vinculada';
         }
 
-        // 6. Calcula o Saldo e Status
+        // 6. SEPARAÇÃO DEFINITIVA DE SALDO, ATRASO E FALTA
         $diff = $workedMinutes - $expectedMinutes;
         $status = 'normal';
         $balanceMinutes = 0;
 
         if ($isDivergent) {
-            $status = 'divergent'; // Faltou bater a saída
+            $status = 'divergent'; // Batida ímpar (Esqueceu de bater a saída)
         } elseif ($holiday && $workedMinutes == 0) {
-            $status = 'holiday'; // Feriado, não trabalhou, ok
+            $status = 'holiday'; // É feriado e ficou em casa (Correto)
         } elseif ($expectedMinutes == 0 && $workedMinutes == 0) {
-            $status = 'day_off'; // Era folga e não trabalhou, tudo certo
-        } elseif (abs($diff) > $tolerance) {
-            $balanceMinutes = $diff;
-            $status = $diff > 0 ? 'overtime' : 'delay';
+            $status = 'day_off'; // Era fim de semana ou folga (Correto)
+            
+        } elseif ($expectedMinutes > 0 && $workedMinutes == 0) {
+            // NOVA REGRA: Era pra trabalhar, mas tem ZERO horas = FALTA INTEGRAL
+            $status = 'absence'; 
+            $balanceMinutes = -$expectedMinutes;
+            
+        } else {
+            // NOVA REGRA: A pessoa foi trabalhar. Vamos aplicar a Tolerância de Atraso.
+            if (abs($diff) > $tolerance) {
+                // Passou da tolerância! Fica com o saldo negativo ou positivo
+                $balanceMinutes = $diff;
+                $status = $diff > 0 ? 'overtime' : 'delay'; // 'delay' aqui significa atraso em horas devidas
+            } else {
+                // Atraso ou Extra foi tão pequeno que ficou DENTRO da tolerância da Jornada
+                $balanceMinutes = 0;
+                $status = 'normal';
+            }
         }
 
         return $this->buildResult($dateObj, $punchTimes, $workedMinutes, $balanceMinutes, $status, $observation, $isWeekend);
@@ -112,13 +123,12 @@ class TimeCalculationService
 
     private function buildResult($dateObj, $punches, $workedMin, $balanceMin, $status, $obs, $isWeekend): array
     {
-        // Nome do dia na semana (segunda-feira, terça-feira...)
         $dayName = ucfirst($dateObj->locale('pt_BR')->translatedFormat('l'));
 
         return [
             'date' => $dateObj->format('d/m/Y'),
             'day_name' => $dayName,
-            'is_weekend' => $isWeekend, // Avisa à tela se é Sábado/Domingo
+            'is_weekend' => $isWeekend,
             'punches' => $punches,
             'worked_formatted' => $this->formatMinutes($workedMin),
             'balance_formatted' => $this->formatMinutes(abs($balanceMin)),
