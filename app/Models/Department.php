@@ -23,4 +23,8 @@ class Department extends Model
     public function employees(): HasMany {
         return $this->hasMany(Employee::class);
     }
+
+    public function shift() {
+        return $this->belongsTo(Shift::class);
+    }
 }

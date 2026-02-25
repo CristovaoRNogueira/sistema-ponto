@@ -64,6 +64,10 @@ class TimeCalculationService
         $tolerance = 15; // Margem de atraso padrão da prefeitura
         $observation = '';
 
+        // --- A MÁGICA DA HERANÇA EM CASCATA ---
+        // Tenta pegar a jornada do Servidor -> Se nulo, pega do Departamento -> Se nulo, pega da Secretaria
+        $effectiveShift = $employee->shift ?? $employee->department?->shift ?? $employee->department?->parent?->shift;
+
         if ($holiday) {
             $expectedMinutes = 0; // Feriado não tem expectativa de horas
             $observation = 'Feriado: ' . $holiday->name;
@@ -75,13 +79,13 @@ class TimeCalculationService
                 $expectedMinutes = $exception->daily_work_minutes; // Plantão Extra ou Trocado
                 $observation = 'Plantão de Exceção';
             }
-        } elseif ($employee->shift) {
-            // Regra Padrão (Sem exceção)
+        } elseif ($effectiveShift) {
+            // Regra baseada na jornada herdada ou própria do servidor
             if ($isWeekend) {
                 $expectedMinutes = 0; // Finais de semana não trabalhados
             } else {
-                $expectedMinutes = $employee->shift->daily_work_minutes;
-                $tolerance = $employee->shift->tolerance_minutes;
+                $expectedMinutes = $effectiveShift->daily_work_minutes;
+                $tolerance = $effectiveShift->tolerance_minutes;
             }
         } else {
             $observation = 'Sem Jornada Vinculada';

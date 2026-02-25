@@ -41,7 +41,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/admin/employees/{employee}/timesheet', [AdminController::class, 'reportTimesheet'])->name('admin.timesheet.report');
 
         // ----- CADASTROS BASE -----
-        Route::resource('/admin/departments', DepartmentController::class)->only(['index', 'store', 'destroy']);
+        Route::resource('/admin/departments', DepartmentController::class)->except(['create', 'show']);
         Route::resource('/admin/job-titles', JobTitleController::class)->only(['index', 'store', 'destroy']);
         Route::resource('/admin/shifts', ShiftController::class)->only(['index', 'store', 'destroy']);
         Route::resource('/admin/devices', DeviceController::class)->only(['index', 'store', 'destroy']);
