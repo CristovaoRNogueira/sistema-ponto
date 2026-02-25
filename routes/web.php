@@ -9,6 +9,7 @@ use App\Http\Controllers\JobTitleController;
 use App\Http\Controllers\ShiftController;
 use App\Http\Controllers\DeviceController;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\HolidayController;
 
 Route::get('/', function () {
     return view('welcome');
@@ -48,6 +49,7 @@ Route::middleware('auth')->group(function () {
         Route::resource('/admin/job-titles', JobTitleController::class)->only(['index', 'store', 'destroy']);
         Route::resource('/admin/shifts', ShiftController::class)->only(['index', 'store', 'destroy']);
         Route::resource('/admin/devices', DeviceController::class)->only(['index', 'store', 'destroy']);
+        Route::resource('/admin/holidays', HolidayController::class)->only(['index', 'store', 'destroy']);
 
         // Rotas de Tratamento de Ponto
         Route::post('/timesheet/{employee}/manual-punch', [EmployeeController::class, 'storeManualPunch'])->name('timesheet.manual-punch');

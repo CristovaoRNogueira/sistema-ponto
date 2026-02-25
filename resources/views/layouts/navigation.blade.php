@@ -37,6 +37,7 @@
                 <x-dropdown-link :href="route('job-titles.index')">Cargos e CBO</x-dropdown-link>
                 <x-dropdown-link :href="route('shifts.index')">Jornadas (Horários)</x-dropdown-link>
                 <x-dropdown-link :href="route('devices.index')">Relógios (REP)</x-dropdown-link>
+                <x-dropdown-link :href="route('holidays.index')">Feriados</x-dropdown-link>
             </x-slot>
         </x-dropdown>
     </div>
@@ -94,6 +95,12 @@
         <div class="pt-2 pb-3 space-y-1">
             <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                 {{ __('Dashboard') }}
+            </x-responsive-nav-link>
+            <x-responsive-nav-link :href="route('employees.index')" :active="request()->routeIs('employees.*')">
+                {{ __('Servidores') }}
+            </x-responsive-nav-link>
+            <x-responsive-nav-link :href="route('holidays.index')" :active="request()->routeIs('holidays.*')">
+                {{ __('Feriados') }}
             </x-responsive-nav-link>
         </div>
 
