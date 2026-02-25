@@ -8,7 +8,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Department extends Model
 {
-    protected $fillable = ['company_id', 'name', 'parent_id'];
+    // O ERRO ESTAVA AQUI: Faltava o 'shift_id' na lista abaixo!
+    protected $fillable = ['company_id', 'name', 'parent_id', 'shift_id'];
 
     // A qual Secretaria (Pai) este departamento pertence
     public function parent(): BelongsTo {

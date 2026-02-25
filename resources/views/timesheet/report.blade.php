@@ -87,7 +87,30 @@
                         <p class="text-sm text-gray-700 mb-1"><strong>Órgão/Empresa:</strong> {{ $employee->company->name ?? 'Prefeitura Municipal' }}</p>
                         <p class="text-sm text-gray-700 mb-1"><strong>CPF:</strong> {{ $employee->cpf }}</p>
                         <p class="text-sm text-gray-700 mb-1"><strong>Departamento:</strong> {{ $employee->department->name ?? 'Não vinculado' }}</p>
-                        <p class="text-sm text-gray-700 mb-1"><strong>Jornada Vinculada:</strong> {{ $employee->shift->name ?? 'NENHUMA JORNADA DEFINIDA' }}</p>
+                        @php
+                            $effectiveShiftName = 'NENHUMA JORNADA DEFINIDA';
+                            $shiftSource = '';
+
+                            if ($employee->shift) {
+                                $effectiveShiftName = $employee->shift->name;
+                                $shiftSource = '(Específica do Servidor)';
+                            } elseif ($employee->department?->shift) {
+                                $effectiveShiftName = $employee->department->shift->name;
+                                $shiftSource = '(Herdada de: ' . $employee->department->name . ')';
+                            } elseif ($employee->department?->parent?->shift) {
+                                $effectiveShiftName = $employee->department->parent->shift->name;
+                                $shiftSource = '(Herdada de: ' . $employee->department->parent->name . ')';
+                            }
+                        @endphp
+                        <p class="text-sm text-gray-700 mb-1">
+                            <strong>Jornada Vinculada:</strong> 
+                            <span class="{{ $effectiveShiftName === 'NENHUMA JORNADA DEFINIDA' ? 'text-red-600 font-bold' : '' }}">
+                                {{ $effectiveShiftName }}
+                            </span>
+                            @if($shiftSource)
+                                <span class="text-xs text-gray-500 italic ml-1 print:text-gray-800">{{ $shiftSource }}</span>
+                            @endif
+                        </p>
                         <p class="text-sm text-gray-700"><strong>Mês Exibido:</strong> <span class="capitalize font-bold text-indigo-700">{{ $period }}</span></p>
                     </div>
                     

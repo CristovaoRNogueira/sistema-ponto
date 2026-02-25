@@ -253,4 +253,26 @@ class EmployeeController extends Controller
 
         return back()->with('success', 'Atestado/Ausência registrado com sucesso.');
     }
+
+    // Processa a movimentação em lote para um novo departamento
+    public function bulkUpdateDepartment(Request $request)
+    {
+        $request->validate([
+            'employee_ids' => 'required|array',
+            'employee_ids.*' => 'exists:employees,id',
+            'target_department_id' => 'required|exists:departments,id',
+        ]);
+
+        $companyId = Auth::user()->company_id;
+
+        // Garante que o departamento de destino pertence à mesma prefeitura/empresa
+        $department = Department::where('company_id', $companyId)->findOrFail($request->target_department_id);
+
+        // Atualiza todos de uma só vez (Update Massivo otimizado)
+        Employee::where('company_id', $companyId)
+            ->whereIn('id', $request->employee_ids)
+            ->update(['department_id' => $department->id]);
+
+        return back()->with('success', count($request->employee_ids) . ' servidor(es) movido(s) para ' . $department->name . ' com sucesso!');
+    }
 }

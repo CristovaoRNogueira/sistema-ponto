@@ -30,6 +30,9 @@ Route::middleware('auth')->group(function () {
         Route::get('/admin/employees/create', [EmployeeController::class, 'create'])->name('employees.create');
         Route::post('/admin/employees', [EmployeeController::class, 'store'])->name('employees.store');
         
+        // --- NOVA ROTA DE LOTE AQUI (Sempre antes das rotas com {employee}) ---
+        Route::post('/admin/employees/bulk-department', [EmployeeController::class, 'bulkUpdateDepartment'])->name('employees.bulk_department');
+        
         Route::get('/admin/employees/{employee}/edit', [EmployeeController::class, 'edit'])->name('employees.edit');
         Route::put('/admin/employees/{employee}', [EmployeeController::class, 'update'])->name('employees.update');
         Route::delete('/admin/employees/{employee}', [EmployeeController::class, 'destroy'])->name('employees.destroy');
