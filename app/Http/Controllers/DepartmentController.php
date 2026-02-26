@@ -9,21 +9,27 @@ use Illuminate\Support\Facades\Auth;
 
 class DepartmentController extends Controller
 {
-    public function index() {
+    public function index()
+    {
         $companyId = Auth::user()->company_id;
 
         $secretariats = Department::where('company_id', $companyId)
-                                  ->whereNull('parent_id')
-                                  ->with(['children.shift', 'shift']) 
-                                  ->orderBy('name')
-                                  ->get();
-                                  
+            ->whereNull('parent_id')
+            ->with(['children.shift', 'shift'])
+            ->orderBy('name')
+            ->get();
+
         $shifts = Shift::where('company_id', $companyId)->orderBy('name')->get();
-                                  
-        return view('departments.index', compact('secretariats', 'shifts'));
+
+        // CORREÇÃO: Puxa todos os departamentos para o modal de Exceção
+        $departments = Department::where('company_id', $companyId)->orderBy('name')->get();
+
+        // CORREÇÃO: Adicionado 'departments' no compact()
+        return view('departments.index', compact('secretariats', 'shifts', 'departments'));
     }
 
-    public function store(Request $request) {
+    public function store(Request $request)
+    {
         $request->validate([
             'name' => 'required|string|max:255',
             'parent_id' => 'nullable|exists:departments,id',
@@ -40,30 +46,32 @@ class DepartmentController extends Controller
         return back()->with('success', 'Estrutura e Jornada adicionadas com sucesso!');
     }
 
-    // NOVO: Abre a tela de edição
-    public function edit(Department $department) {
+    // Abre a tela de edição
+    public function edit(Department $department)
+    {
         // Proteção para garantir que o departamento pertence à empresa atual
-        if($department->company_id !== Auth::user()->company_id) {
+        if ($department->company_id !== Auth::user()->company_id) {
             abort(403);
         }
 
         $companyId = Auth::user()->company_id;
-        
+
         // Puxa secretarias para o campo de vínculo (excluindo o próprio departamento para não causar um loop infinito)
         $secretariats = Department::where('company_id', $companyId)
-                                  ->whereNull('parent_id')
-                                  ->where('id', '!=', $department->id) 
-                                  ->orderBy('name')
-                                  ->get();
-                                  
+            ->whereNull('parent_id')
+            ->where('id', '!=', $department->id)
+            ->orderBy('name')
+            ->get();
+
         $shifts = Shift::where('company_id', $companyId)->orderBy('name')->get();
 
         return view('departments.edit', compact('department', 'secretariats', 'shifts'));
     }
 
-    // NOVO: Salva os dados atualizados
-    public function update(Request $request, Department $department) {
-        if($department->company_id !== Auth::user()->company_id) {
+    // Salva os dados atualizados
+    public function update(Request $request, Department $department)
+    {
+        if ($department->company_id !== Auth::user()->company_id) {
             abort(403);
         }
 
@@ -87,8 +95,9 @@ class DepartmentController extends Controller
         return redirect()->route('departments.index')->with('success', 'Estrutura atualizada com sucesso!');
     }
 
-    public function destroy(Department $department) {
-        if($department->company_id === Auth::user()->company_id) {
+    public function destroy(Department $department)
+    {
+        if ($department->company_id === Auth::user()->company_id) {
             $department->delete();
         }
         return back()->with('success', 'Removido com sucesso!');

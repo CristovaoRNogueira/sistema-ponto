@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Employee;
 use App\Models\Absence;
 use App\Models\ShiftException;
+use App\Models\DepartmentShiftException;
 use App\Models\Holiday;
 use Carbon\Carbon;
 
@@ -20,6 +21,9 @@ class TimeCalculationService
             ->orderBy('punch_time', 'asc')
             ->get();
 
+        // ==========================================
+        // PRIORIDADE 0: ATESTADOS E AUSÊNCIAS (Soberano)
+        // ==========================================
         $absence = Absence::where('employee_id', $employee->id)
             ->whereDate('start_date', '<=', $date)
             ->whereDate('end_date', '>=', $date)
@@ -28,77 +32,109 @@ class TimeCalculationService
 
         if ($absence) {
             $punchTimes = $punches->map(fn($p) => Carbon::parse($p->punch_time)->format('H:i'))->toArray();
-            // Atestado: Carga Esperada = 0 (abona o dia)
             return $this->buildResult($dateObj, $punchTimes, 0, 0, 0, 'justified', 'Atestado/Licença', $isWeekend);
         }
 
-        $holiday = Holiday::where(function ($query) use ($employee) {
-            $query->where('company_id', $employee->company_id)
-                ->orWhereNull('company_id');
-        })
-            ->whereDate('date', $date)
-            ->first();
+        // ==========================================
+        // BUSCA DAS FONTES DE JORNADA (DB)
+        // ==========================================
+        $empException = ShiftException::where('employee_id', $employee->id)->whereDate('exception_date', $date)->first();
 
-        $exception = ShiftException::where('employee_id', $employee->id)
+        $deptIds = array_filter([$employee->department_id, $employee->department?->parent_id]);
+        $deptException = DepartmentShiftException::whereIn('department_id', $deptIds)
             ->whereDate('exception_date', $date)
+            ->orderByRaw($deptIds ? "FIELD(department_id, " . implode(',', array_reverse($deptIds)) . ") DESC" : "id")
             ->first();
 
-        $effectiveShift = $employee->shift ?? $employee->department?->shift ?? $employee->department?->parent?->shift;
+        $holiday = Holiday::where(function ($query) use ($employee) {
+            $query->where('company_id', $employee->company_id)->orWhereNull('company_id');
+        })->whereDate('date', $date)->first();
+
+        $empShift = $employee->shift;
+        $deptShift = $employee->department?->shift ?? $employee->department?->parent?->shift;
+
+        // A tolerância vem da jornada base do funcionário, mesmo em dias de exceção
+        $baseShift = $empShift ?? $deptShift;
+        $tolerance = $baseShift ? $baseShift->tolerance_minutes : 0;
 
         $expectedMinutes = 0;
-        $tolerance = 0;
         $observation = '';
         $expectedPunchesCount = 0;
         $shiftIn1 = null;
+        $effectiveShiftForLunch = null;
 
-        if ($holiday) {
-            $observation = 'Feriado: ' . $holiday->name;
-            $expectedMinutes = 0; // Feriado reduz a carga mensal
-        } elseif ($exception) {
-            if ($exception->type === 'day_off') {
-                $observation = 'Folga/Troca compensada';
+        // ==========================================
+        // HIERARQUIA RESTRITA DE REGRAS DE NEGÓCIO
+        // ==========================================
+        if ($empException) {
+            // 1. EXCEÇÃO DO SERVIDOR (Plantão, Troca)
+            $effectiveShiftForLunch = $empException;
+            if ($empException->type === 'day_off') {
                 $expectedMinutes = 0;
+                $observation = 'Folga/Troca (Servidor)';
             } else {
-                $expectedMinutes = $exception->daily_work_minutes;
-                $observation = 'Plantão de Exceção';
-                $expectedPunchesCount = 2;
+                $expectedMinutes = $empException->daily_work_minutes;
+                $observation = 'Exceção de Jornada (Servidor)';
+                $expectedPunchesCount = (!empty($empException->in_2) && !empty($empException->out_2)) ? 4 : 2;
+                $shiftIn1 = $empException->in_1;
             }
-        } elseif ($effectiveShift && !$isWeekend) {
-            $expectedMinutes = $effectiveShift->daily_work_minutes;
-            $tolerance = $effectiveShift->tolerance_minutes;
-            $shiftIn1 = $effectiveShift->in_1;
-            $expectedPunchesCount = (!empty($effectiveShift->in_2) && !empty($effectiveShift->out_2)) ? 4 : 2;
+        } elseif ($deptException) {
+            // 2. EXCEÇÃO DO DEPARTAMENTO (Recesso Parcial / Total)
+            $effectiveShiftForLunch = $deptException;
+            if ($deptException->type === 'day_off') {
+                $expectedMinutes = 0;
+                $observation = 'Recesso do Departamento';
+            } else {
+                $expectedMinutes = $deptException->daily_work_minutes;
+                $observation = 'Funcionamento Parcial (Departamento)';
+                $expectedPunchesCount = (!empty($deptException->in_2) && !empty($deptException->out_2)) ? 4 : 2;
+                $shiftIn1 = $deptException->in_1;
+            }
+        } elseif ($holiday) {
+            // 3. FERIADO
+            $expectedMinutes = 0;
+            $observation = 'Feriado: ' . $holiday->name;
+        } elseif ($empShift && !$isWeekend) {
+            // 4. JORNADA ESPECÍFICA DO SERVIDOR
+            $effectiveShiftForLunch = $empShift;
+            $expectedMinutes = $empShift->daily_work_minutes;
+            $observation = ''; // <-- CORRIGIDO: Limpo para não confundir no Espelho
+            $expectedPunchesCount = (!empty($empShift->in_2) && !empty($empShift->out_2)) ? 4 : 2;
+            $shiftIn1 = $empShift->in_1;
+        } elseif ($deptShift && !$isWeekend) {
+            // 5. JORNADA DO DEPARTAMENTO
+            $effectiveShiftForLunch = $deptShift;
+            $expectedMinutes = $deptShift->daily_work_minutes;
+            $observation = ''; // <-- CORRIGIDO: Limpo para não confundir no Espelho
+            $expectedPunchesCount = (!empty($deptShift->in_2) && !empty($deptShift->out_2)) ? 4 : 2;
+            $shiftIn1 = $deptShift->in_1;
         } elseif ($isWeekend) {
+            // 6. FINAL DE SEMANA
+            $expectedMinutes = 0;
             $observation = 'Final de Semana';
         } else {
+            $expectedMinutes = 0;
             $observation = 'Sem Jornada Vinculada';
         }
 
-        $punchObjects = [];
-        foreach ($punches as $p) {
-            $punchObjects[] = Carbon::parse($p->punch_time);
-        }
-
-        $punchTimes = [];
-        foreach ($punchObjects as $po) {
-            $punchTimes[] = $po->format('H:i');
-        }
-
+        // ==========================================
+        // MATEMÁTICA DE BATIDAS E SALDO DIÁRIO
+        // ==========================================
         $calcPunchObjects = [];
-        foreach ($punchObjects as $po) {
+        $punchTimes = [];
+        foreach ($punches as $p) {
+            $po = Carbon::parse($p->punch_time);
+            $punchTimes[] = $po->format('H:i');
             $calcPunchObjects[] = clone $po;
         }
 
-        // Tolerância na entrada 1 só corta se chegou cedo (não gera hora extra indevida)
+        // Tolerância para corte de chegada adiantada (evita hora extra indevida)
         if (count($calcPunchObjects) > 0 && !empty($shiftIn1) && $tolerance > 0) {
             $expectedIn1 = Carbon::parse($dateObj->format('Y-m-d') . ' ' . $shiftIn1);
             $firstPunch = $calcPunchObjects[0];
 
-            if ($firstPunch->lt($expectedIn1)) {
-                $diffEarly = $firstPunch->diffInMinutes($expectedIn1);
-                if ($diffEarly <= $tolerance) {
-                    $calcPunchObjects[0] = clone $expectedIn1;
-                }
+            if ($firstPunch->lt($expectedIn1) && $firstPunch->diffInMinutes($expectedIn1) <= $tolerance) {
+                $calcPunchObjects[0] = clone $expectedIn1;
             }
         }
 
@@ -106,34 +142,28 @@ class TimeCalculationService
         $numPunches = count($calcPunchObjects);
 
         for ($i = 0; $i < $numPunches - 1; $i += 2) {
-            $in = $calcPunchObjects[$i];
-            $out = $calcPunchObjects[$i + 1];
-            $workedMinutes += $in->diffInMinutes($out);
+            $workedMinutes += $calcPunchObjects[$i]->diffInMinutes($calcPunchObjects[$i + 1]);
         }
 
-        // Desconto Inteligente de Almoço (se bateu 2 e deveria bater 4)
-        if ($expectedPunchesCount == 4 && $numPunches == 2 && !empty($effectiveShift->out_1) && !empty($effectiveShift->in_2)) {
-            $out1Obj = Carbon::parse($dateObj->format('Y-m-d') . ' ' . $effectiveShift->out_1);
-            $in2Obj = Carbon::parse($dateObj->format('Y-m-d') . ' ' . $effectiveShift->in_2);
+        // Desconto Inteligente de Almoço
+        if ($expectedPunchesCount == 4 && $numPunches == 2 && $effectiveShiftForLunch && !empty($effectiveShiftForLunch->out_1) && !empty($effectiveShiftForLunch->in_2)) {
+            $out1Obj = Carbon::parse($dateObj->format('Y-m-d') . ' ' . $effectiveShiftForLunch->out_1);
+            $in2Obj = Carbon::parse($dateObj->format('Y-m-d') . ' ' . $effectiveShiftForLunch->in_2);
 
-            $pIn = $calcPunchObjects[0];
-            $pOut = $calcPunchObjects[1];
-
-            $overlapStart = $pIn->max($out1Obj);
-            $overlapEnd = $pOut->min($in2Obj);
+            $overlapStart = $calcPunchObjects[0]->max($out1Obj);
+            $overlapEnd = $calcPunchObjects[1]->min($in2Obj);
 
             if ($overlapStart->lt($overlapEnd)) {
                 $workedMinutes -= $overlapStart->diffInMinutes($overlapEnd);
             }
         }
 
-        $diff = $workedMinutes - $expectedMinutes;
-        $balanceMinutes = $diff;
+        $balanceMinutes = $workedMinutes - $expectedMinutes;
         $status = 'normal';
 
         if ($expectedMinutes > 0 && $numPunches == 0) {
             $status = 'absence';
-        } elseif ($holiday && $numPunches == 0) {
+        } elseif (($holiday || ($deptException && $deptException->type === 'day_off')) && $numPunches == 0) {
             $status = 'holiday';
             $balanceMinutes = 0;
         } elseif ($expectedMinutes == 0 && $numPunches == 0) {
@@ -144,30 +174,27 @@ class TimeCalculationService
         } elseif ($expectedPunchesCount > 0 && $numPunches > 0 && $numPunches < $expectedPunchesCount) {
             $status = 'incomplete';
         } else {
-            if ($diff == 0) {
+            if ($balanceMinutes == 0) {
                 $status = 'normal';
-            } elseif ($diff > 0) {
+            } elseif ($balanceMinutes > 0) {
                 $status = 'overtime';
             } else {
                 $status = 'delay';
             }
         }
 
-        // NOVO: Passando o $expectedMinutes
         return $this->buildResult($dateObj, $punchTimes, $expectedMinutes, $workedMinutes, $balanceMinutes, $status, $observation, $isWeekend);
     }
 
     private function buildResult($dateObj, $punches, $expectedMin, $workedMin, $balanceMin, $status, $obs, $isWeekend): array
     {
-        $dayName = ucfirst($dateObj->locale('pt_BR')->translatedFormat('l'));
-
         return [
             'date' => $dateObj->format('d/m/Y'),
-            'day_name' => $dayName,
+            'day_name' => ucfirst($dateObj->locale('pt_BR')->translatedFormat('l')),
             'is_weekend' => $isWeekend,
             'punches' => $punches,
-            'expected_minutes' => $expectedMin, // NOVO
-            'worked_minutes' => $workedMin,     // NOVO
+            'expected_minutes' => $expectedMin,
+            'worked_minutes' => $workedMin,
             'worked_formatted' => $this->formatMinutes($workedMin),
             'balance_formatted' => $this->formatMinutes(abs($balanceMin)),
             'balance_minutes' => $balanceMin,

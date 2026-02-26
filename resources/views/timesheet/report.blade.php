@@ -261,6 +261,44 @@
                 </div>
             </div>
 
+            @if(isset($absences) && $absences->count() > 0)
+            <div class="mt-8 bg-white shadow-sm sm:rounded-lg border border-gray-200 overflow-hidden print:hidden">
+                <div class="bg-purple-50 px-4 py-3 border-b border-purple-100 flex justify-between items-center">
+                    <h3 class="font-bold text-purple-800 uppercase text-sm">Atestados e Licenças (Neste Mês)</h3>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full text-left text-sm whitespace-nowrap">
+                        <thead class="bg-gray-50 border-b">
+                            <tr>
+                                <th class="px-4 py-2 text-gray-600">Período Abonado</th>
+                                <th class="px-4 py-2 text-gray-600">Motivo / CID</th>
+                                <th class="px-4 py-2 text-center text-gray-600">Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200">
+                            @foreach($absences as $abs)
+                            <tr class="hover:bg-gray-50 transition">
+                                <td class="px-4 py-3 font-medium text-gray-900">
+                                    {{ \Carbon\Carbon::parse($abs->start_date)->format('d/m/Y') }} até {{ \Carbon\Carbon::parse($abs->end_date)->format('d/m/Y') }}
+                                </td>
+                                <td class="px-4 py-3 text-gray-600">{{ $abs->reason }}</td>
+                                <td class="px-4 py-3 text-center">
+                                    <form method="POST" action="{{ route('absences.destroy', $abs->id) }}" onsubmit="return confirm('Tem certeza que deseja excluir este atestado? O sistema voltará a cobrar a carga horária e o saldo do servidor mudará instantaneamente.');">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button type="submit" class="bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1.5 rounded text-xs font-bold uppercase transition shadow-sm border border-red-200">
+                                            Excluir Atestado
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            @endif
+
             <div class="hidden print:flex justify-between mt-16 pt-8 px-12">
                 <div class="text-center w-64 border-t border-gray-800 pt-2">
                     <p class="text-sm font-bold">Assinatura do Servidor</p>

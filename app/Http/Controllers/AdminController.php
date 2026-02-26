@@ -10,17 +10,19 @@ use App\Models\Department;
 use App\Models\Shift;
 use App\Models\Absence;
 use App\Models\ShiftException;
+use App\Models\DepartmentShiftException;
 use App\Services\DeviceCommandService;
 use App\Services\TimeCalculationService;
 use App\Services\DashboardService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 
 class AdminController extends Controller
 {
     public function __construct(
         private readonly DeviceCommandService $commandService,
-        private readonly DashboardService $dashboardService 
+        private readonly DashboardService $dashboardService
     ) {}
 
     // A NOVA FUNÇÃO INDEX (DASHBOARD INTELIGENTE COM NÍVEIS DE ACESSO)
@@ -34,49 +36,47 @@ class AdminController extends Controller
         $departmentId = $request->input('department_id');
 
         // ==== TRAVA DE SEGURANÇA ENTERPRISE ====
-        // Se o usuário não for Admin (for Operator), ele fica preso ao seu próprio departamento
         if (!Auth::user()->isAdmin() && Auth::user()->isOperator()) {
             $departmentId = Auth::user()->department_id;
         }
-        // ========================================
 
         $startDate = Carbon::createFromDate($year, $month, 1)->startOfMonth();
         $endDate = $startDate->copy()->endOfMonth();
 
-        // Traz as secretarias para popular o menu <select> de filtro
-        // Se for Operator, traz só a dele
         $secretariatsQuery = Department::where('company_id', $companyId)->whereNull('parent_id')->orderBy('name');
         if (!Auth::user()->isAdmin() && Auth::user()->isOperator()) {
             $secretariatsQuery->where('id', Auth::user()->department_id);
         }
         $secretariats = $secretariatsQuery->get();
 
-        // 1. Gráficos Básicos (Lotação de Servidores)
         $deptDistribution = $this->dashboardService->getEmployeesByDepartment($companyId, $departmentId);
         $chartLabels = $deptDistribution->map(fn($d) => $d->department->name ?? 'Sem Setor')->toArray();
         $chartData = $deptDistribution->map(fn($d) => $d->total)->toArray();
         $totalEmployees = array_sum($chartData);
 
-        // 2. Feed de Últimas Batidas Brutas
         $punches = PunchLog::with(['employee', 'device'])
-            ->whereHas('employee', function($q) use ($companyId, $departmentId) {
+            ->whereHas('employee', function ($q) use ($companyId, $departmentId) {
                 $q->where('company_id', $companyId);
                 if ($departmentId) $q->where('department_id', $departmentId);
             })
-            ->orderBy('punch_time', 'desc') 
+            ->orderBy('punch_time', 'desc')
             ->take(8)
             ->get();
 
-        // 3. Atestados Ativos
         $absences = $this->dashboardService->getActiveAbsences($companyId, $startDate, $endDate, $departmentId);
-
-        // 4. Rankings Inteligentes (Cacheado e preciso)
         $rankings = $this->dashboardService->getConsolidatedRankings($companyId, $startDate, $endDate, $departmentId);
 
         return view('dashboard', compact(
-            'month', 'year', 'departmentId', 'secretariats', 
-            'totalEmployees', 'chartLabels', 'chartData', 'punches',
-            'absences', 'rankings'
+            'month',
+            'year',
+            'departmentId',
+            'secretariats',
+            'totalEmployees',
+            'chartLabels',
+            'chartData',
+            'punches',
+            'absences',
+            'rankings'
         ));
     }
 
@@ -114,7 +114,7 @@ class AdminController extends Controller
     public function syncEmployeeToDevice(Request $request, Employee $employee)
     {
         $request->validate(['device_id' => 'required|exists:devices,id']);
-        
+
         if ($employee->company_id !== Auth::user()->company_id) {
             abort(403, 'Acesso negado.');
         }
@@ -149,6 +149,19 @@ class AdminController extends Controller
         return redirect()->back()->with('success', 'Atestado/Justificativa registrado.');
     }
 
+    // FUNÇÃO ÚNICA PARA APAGAR ATESTADOS
+    public function destroyAbsence(Absence $absence)
+    {
+        if ($absence->employee->company_id !== Auth::user()->company_id) {
+            abort(403, 'Acesso negado.');
+        }
+
+        $absence->delete();
+        Cache::flush();
+
+        return redirect()->back()->with('success', 'Atestado/Ausência removido com sucesso! O espelho e o saldo mensal foram recalculados.');
+    }
+
     public function storeShiftSwap(Request $request)
     {
         $request->validate([
@@ -174,8 +187,35 @@ class AdminController extends Controller
         return redirect()->back()->with('success', 'Exceção configurada com sucesso.');
     }
 
+    public function storeDepartmentException(Request $request)
+    {
+        $request->validate([
+            'department_id' => 'required|exists:departments,id',
+            'exception_date' => 'required|date',
+            'type' => 'required|in:partial,day_off',
+            'daily_work_minutes' => 'nullable|integer',
+            'observation' => 'required|string',
+        ]);
+
+        if (!Auth::user()->isAdmin() && Auth::user()->department_id != $request->department_id) {
+            abort(403, 'Você só pode gerenciar o seu próprio departamento.');
+        }
+
+        DepartmentShiftException::create([
+            'department_id' => $request->department_id,
+            'exception_date' => $request->exception_date,
+            'type' => $request->type,
+            'daily_work_minutes' => $request->type === 'day_off' ? 0 : ($request->daily_work_minutes ?? 0),
+            'observation' => $request->observation,
+        ]);
+
+        Cache::flush();
+
+        return redirect()->back()->with('success', 'Exceção / Recesso aplicado ao departamento com sucesso!');
+    }
+
     // --- ESPELHO DE PONTO (Timesheet) ---
-    
+
     public function reportTimesheet(Request $request, Employee $employee, TimeCalculationService $calcService)
     {
         if ($employee->company_id !== Auth::user()->company_id) {
@@ -192,6 +232,15 @@ class AdminController extends Controller
             $endDate = Carbon::now();
         }
 
+        $absences = Absence::where('employee_id', $employee->id)
+            ->where(function ($q) use ($startDate, $endDate) {
+                $q->whereBetween('start_date', [$startDate, $endDate])
+                    ->orWhereBetween('end_date', [$startDate, $endDate])
+                    ->orWhere(function ($sub) use ($startDate, $endDate) {
+                        $sub->where('start_date', '<=', $startDate)->where('end_date', '>=', $endDate);
+                    });
+            })->orderBy('start_date', 'desc')->get();
+
         $report = [];
         $totals = ['expected_minutes' => 0, 'worked_minutes' => 0, 'overtime_minutes' => 0, 'delay_minutes' => 0];
 
@@ -205,7 +254,7 @@ class AdminController extends Controller
                 if ($daily['balance_minutes'] > 0) {
                     $totals['overtime_minutes'] += $daily['balance_minutes'];
                 } elseif ($daily['balance_minutes'] < 0) {
-                    $totals['delay_minutes'] += abs($daily['balance_minutes']); 
+                    $totals['delay_minutes'] += abs($daily['balance_minutes']);
                 }
             }
         }
@@ -219,21 +268,23 @@ class AdminController extends Controller
         Carbon::setLocale('pt_BR');
         $period = $startDate->translatedFormat('F / Y');
 
-        return view('timesheet.report', compact('employee', 'report', 'totalsFormatted', 'period'));
+        return view('timesheet.report', compact('employee', 'report', 'totalsFormatted', 'period', 'absences'));
     }
 
-    private function parseMinutes(string $hhmm): int {
+    private function parseMinutes(string $hhmm): int
+    {
         $parts = explode(':', $hhmm);
         if (count($parts) !== 2) return 0;
         return ((int)$parts[0] * 60) + (int)$parts[1];
     }
 
-    private function formatMinutes(int $totalMinutes): string {
+    private function formatMinutes(int $totalMinutes): string
+    {
         return sprintf('%02d:%02d', floor($totalMinutes / 60), $totalMinutes % 60);
     }
 
-    // --- GERAÇÃO DO FECHAMENTO MENSAL EM LOTE (EXCEL/CSV) - ALINHADO COM O DASHBOARD ---
-    
+    // --- GERAÇÃO DO FECHAMENTO MENSAL EM LOTE (EXCEL/CSV) ---
+
     public function exportMonthlyClosing(Request $request, TimeCalculationService $calcService)
     {
         $companyId = Auth::user()->company_id;
@@ -242,29 +293,26 @@ class AdminController extends Controller
 
         $startDate = Carbon::createFromDate($year, $month, 1)->startOfMonth();
         $endDate = $startDate->copy()->endOfMonth();
-        
-        // Regra do Dashboard: Analisa até hoje
+
         $limitDate = $endDate->isFuture() ? Carbon::today() : clone $endDate;
 
-        // Puxando os funcionários. Se for Operator, restringe ao seu departamento.
         $query = Employee::where('company_id', $companyId)
             ->where('is_active', true)
             ->with(['department.shift', 'department.parent.shift', 'shift'])
             ->orderBy('name');
-            
+
         if (!Auth::user()->isAdmin() && Auth::user()->isOperator()) {
             $query->where('department_id', Auth::user()->department_id);
         }
-        
-        // Se o usuário filtrou por um departamento específico na tela antes de exportar
+
         if ($request->filled('department_id')) {
             $query->where('department_id', $request->input('department_id'));
         }
 
         $employees = $query->get();
-            
+
         $fileName = "fechamento_ponto_{$month}_{$year}.csv";
-        
+
         $headers = [
             "Content-type"        => "text/csv; charset=UTF-8",
             "Content-Disposition" => "attachment; filename=$fileName",
@@ -273,12 +321,11 @@ class AdminController extends Controller
             "Expires"             => "0"
         ];
 
-        // Novas colunas idênticas às tabelas do Dashboard
         $columns = ['Matricula', 'Nome do Servidor', 'CPF', 'Secretaria/Lotacao', 'Dias Trabalhados', 'Faltas Integrais', 'Dias de Atraso', 'Carga Mensal Exigida', 'Total Trabalhado', 'Saldo Liquido (Mes)'];
 
-        $callback = function() use($employees, $startDate, $limitDate, $columns, $calcService) {
+        $callback = function () use ($employees, $startDate, $limitDate, $columns, $calcService) {
             $file = fopen('php://output', 'w');
-            fputs($file, $bom = (chr(0xEF) . chr(0xBB) . chr(0xBF))); // Previne erros de acentuação no Excel
+            fputs($file, $bom = (chr(0xEF) . chr(0xBB) . chr(0xBF)));
             fputcsv($file, $columns, ';');
 
             if ($limitDate->lt($startDate)) {
@@ -293,13 +340,12 @@ class AdminController extends Controller
                 $cargaMensalMin = 0;
                 $totalTrabalhadoMin = 0;
 
-                // Lendo a tolerância da Jornada
                 $effectiveShift = $emp->shift ?? $emp->department?->shift ?? $emp->department?->parent?->shift;
                 $tolerance = $effectiveShift ? $effectiveShift->tolerance_minutes : 0;
 
                 for ($date = $startDate->copy(); $date->lte($limitDate); $date->addDay()) {
                     $daily = $calcService->calculateDailyTimesheet($emp, $date->format('Y-m-d'));
-                    
+
                     $workedMin = $daily['worked_minutes'] ?? 0;
                     $expectedMin = $daily['expected_minutes'] ?? 0;
                     $balanceMin = $daily['balance_minutes'] ?? 0;
@@ -312,7 +358,6 @@ class AdminController extends Controller
                     $cargaMensalMin += $expectedMin;
                     $totalTrabalhadoMin += $workedMin;
 
-                    // MESMAS REGRAS DE STATUS DO DASHBOARD
                     $isFaltaIntegral = false;
                     if ($status === 'absence') {
                         $isFaltaIntegral = true;
@@ -329,7 +374,6 @@ class AdminController extends Controller
                     }
                 }
 
-                // CÁLCULO MESTRE
                 $saldoLiquido = $totalTrabalhadoMin - $cargaMensalMin;
 
                 $formatMin = fn($min) => sprintf('%02d:%02d', floor($min / 60), $min % 60);

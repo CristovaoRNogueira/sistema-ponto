@@ -42,11 +42,13 @@ Route::middleware('auth')->group(function () {
         // 3. Ações do Relógio e Ponto
         Route::post('/admin/employees/{employee}/sync', [AdminController::class, 'syncEmployeeToDevice'])->name('admin.employees.sync');
         Route::post('/admin/absences', [AdminController::class, 'storeAbsence'])->name('admin.absences.store');
+        Route::delete('/absences/{absence}', [AdminController::class, 'destroyAbsence'])->name('absences.destroy');
         Route::post('/admin/shift-exceptions', [AdminController::class, 'storeShiftSwap'])->name('admin.shift_exceptions.store');
         Route::get('/admin/employees/{employee}/timesheet', [AdminController::class, 'reportTimesheet'])->name('admin.timesheet.report');
 
         // ----- CADASTROS BASE -----
         Route::resource('/admin/departments', DepartmentController::class)->except(['create', 'show']);
+        Route::post('/department-exceptions', [App\Http\Controllers\AdminController::class, 'storeDepartmentException'])->name('departments.exceptions.store');
         Route::resource('/admin/job-titles', JobTitleController::class)->only(['index', 'store', 'destroy']);
         Route::resource('/admin/shifts', ShiftController::class)->only(['index', 'store', 'destroy']);
         Route::resource('/admin/devices', DeviceController::class)->only(['index', 'store', 'destroy']);
@@ -55,6 +57,7 @@ Route::middleware('auth')->group(function () {
         // Rotas de Tratamento de Ponto
         Route::post('/timesheet/{employee}/manual-punch', [EmployeeController::class, 'storeManualPunch'])->name('timesheet.manual-punch');
         Route::post('/timesheet/{employee}/absence', [EmployeeController::class, 'storeAbsence'])->name('timesheet.absence');
+        Route::delete('/absences/{absence}', [App\Http\Controllers\AdminController::class, 'destroyAbsence'])->name('absences.destroy');
 
         // Rota de Bulk Sync e Importação (Sincronização do Relógio)
         Route::post('/devices/{device}/sync', [DeviceController::class, 'syncEmployees'])->name('devices.sync');
