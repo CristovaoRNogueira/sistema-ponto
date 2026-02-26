@@ -16,7 +16,8 @@ class User extends Authenticatable
         'email',
         'password',
         'company_id',
-        'role', // 'admin', 'operator', 'employee'
+        'department_id', // <-- ADICIONADO AQUI
+        'role',
     ];
 
     protected $hidden = [
@@ -66,5 +67,10 @@ class User extends Authenticatable
     public function isEmployee(): bool
     {
         return $this->role === 'employee';
+    }
+
+    public function department(): BelongsTo
+    {
+        return $this->belongsTo(Department::class);
     }
 }
