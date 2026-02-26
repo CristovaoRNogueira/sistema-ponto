@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\HolidayController;
 
 Route::get('/', function () {
-    return view('welcome');
+    return redirect()->route('login');
 });
 
 Route::middleware('auth')->group(function () {
@@ -22,23 +22,23 @@ Route::middleware('auth')->group(function () {
 
     // Sistema Principal
     Route::middleware('company')->group(function () {
-        
+
         // 1. Dashboard (Apenas Gráficos)
         Route::get('/dashboard', [AdminController::class, 'index'])->name('dashboard');
         Route::get('/admin/export/monthly', [AdminController::class, 'exportMonthlyClosing'])->name('admin.export.monthly');
-        
+
         // 2. Gestão de Servidores (Telas Separadas)
         Route::get('/admin/employees', [EmployeeController::class, 'index'])->name('employees.index');
         Route::get('/admin/employees/create', [EmployeeController::class, 'create'])->name('employees.create');
         Route::post('/admin/employees', [EmployeeController::class, 'store'])->name('employees.store');
-        
+
         // --- NOVA ROTA DE LOTE AQUI (Sempre antes das rotas com {employee}) ---
         Route::post('/admin/employees/bulk-department', [EmployeeController::class, 'bulkUpdateDepartment'])->name('employees.bulk_department');
-        
+
         Route::get('/admin/employees/{employee}/edit', [EmployeeController::class, 'edit'])->name('employees.edit');
         Route::put('/admin/employees/{employee}', [EmployeeController::class, 'update'])->name('employees.update');
         Route::delete('/admin/employees/{employee}', [EmployeeController::class, 'destroy'])->name('employees.destroy');
-        
+
         // 3. Ações do Relógio e Ponto
         Route::post('/admin/employees/{employee}/sync', [AdminController::class, 'syncEmployeeToDevice'])->name('admin.employees.sync');
         Route::post('/admin/absences', [AdminController::class, 'storeAbsence'])->name('admin.absences.store');
@@ -65,7 +65,6 @@ Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
-
 });
 
-require __DIR__.'/auth.php';
+require __DIR__ . '/auth.php';
