@@ -48,8 +48,8 @@ class DashboardService
 
     public function getConsolidatedRankings($companyId, Carbon $startDate, Carbon $endDate, $departmentId = null)
     {
-        // NOVO CACHE (V6): Atualiza sozinho!
-        $cacheKey = "dash_v6_{$companyId}_{$startDate->format('Ym')}_{$departmentId}";
+        // Chave v7: Atualiza o cache imediatamente!
+        $cacheKey = "dash_v7_{$companyId}_{$startDate->format('Ym')}_{$departmentId}";
 
         return Cache::remember($cacheKey, now()->addMinutes(5), function () use ($companyId, $startDate, $endDate, $departmentId) {
 
@@ -84,7 +84,6 @@ class DashboardService
                 $ultimoAtraso = null;
                 $diasTrabalhados = 0;
 
-                // LEITURA DA TOLERÂNCIA DA JORNADA DO SERVIDOR
                 $effectiveShift = $emp->shift ?? $emp->department?->shift ?? $emp->department?->parent?->shift;
                 $tolerance = $effectiveShift ? $effectiveShift->tolerance_minutes : 0;
 
@@ -115,7 +114,6 @@ class DashboardService
                         $diasFalta++;
                         $ultimaFalta = $date->format('d/m/Y');
                     } else {
-                        // REGRA NOVA DE ATRASOS: Só conta o "dia como atrasado" se o débito do dia for MAIOR que a tolerância
                         if ($balanceMin < 0 && abs($balanceMin) > $tolerance && in_array($status, ['delay', 'incomplete', 'divergent'])) {
                             $qtdAtrasos++;
                             $ultimoAtraso = $date->format('d/m/Y');
@@ -132,7 +130,6 @@ class DashboardService
                     $delays[] = [
                         'employee' => $emp,
                         'qtd' => $qtdAtrasos,
-                        // ENVIA O SALDO LÍQUIDO MENSAL EM VEZ DA SOMA DE ATRASOS
                         'saldo_min' => $saldoLiquido,
                         'formatted_saldo' => $formatSaldo($saldoLiquido),
                         'percent' => round(($qtdAtrasos / $diasUteisMes) * 100, 1),
@@ -163,14 +160,11 @@ class DashboardService
                 }
             }
 
-            // ORDENAÇÕES ATUALIZADAS
-            usort($delays, fn($a, $b) => $b['qtd'] <=> $a['qtd']); // Mantém maior nº de dias de atraso no topo
-
-            // FALTAS: DO MENOR PARA O MAIOR (Crescente)
+            usort($delays, fn($a, $b) => $b['qtd'] <=> $a['qtd']);
             usort($absences, fn($a, $b) => $a['days'] <=> $b['days']);
 
-            // SALDO LÍQUIDO: DO MENOR PARA O MAIOR (Crescente - os mais negativos ficam no topo)
-            usort($bankHours, fn($a, $b) => $a['balance_min'] <=> $b['balance_min']);
+            // INVERTIDO: SALDO DO MAIOR PARA O MENOR (Mais extras no topo, mais dívidas em baixo)
+            usort($bankHours, fn($a, $b) => $b['balance_min'] <=> $a['balance_min']);
 
             return [
                 'delays' => $delays,
