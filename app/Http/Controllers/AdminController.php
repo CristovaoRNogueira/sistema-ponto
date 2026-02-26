@@ -246,8 +246,8 @@ class AdminController extends Controller
             "Expires"             => "0"
         ];
 
-        // Colunas com a Nomenclatura Nova
-        $columns = ['Matricula', 'Nome do Servidor', 'CPF', 'Secretaria/Lotacao', 'Dias Trabalhados', 'Faltas Integrais', 'Horas Extras (+)', 'Atrasos/Saidas (-)', 'Saldo Liquido (Banco)'];
+        // Cabeçalho da Planilha reflete a Nova Regra
+        $columns = ['Matricula', 'Nome do Servidor', 'CPF', 'Secretaria/Lotacao', 'Dias de Ponto Batido', 'Faltas Integrais', 'Carga Mensal Exigida', 'Total Horas Trabalhadas', 'Saldo Liquido (Banco)'];
 
         $callback = function() use($employees, $startDate, $endDate, $columns, $calcService) {
             $file = fopen('php://output', 'w');
@@ -257,9 +257,8 @@ class AdminController extends Controller
             foreach ($employees as $emp) {
                 $diasTrabalhados = 0;
                 $faltasIntegrais = 0;
-                $bancoMinutos = 0;
-                $extrasMinutos = 0;
-                $atrasosMinutos = 0;
+                $cargaMensalMin = 0;
+                $totalTrabalhadoMin = 0;
 
                 for ($date = $startDate->copy(); $date->lte($endDate); $date->addDay()) {
                     $daily = $calcService->calculateDailyTimesheet($emp, $date->format('Y-m-d'));
@@ -267,19 +266,16 @@ class AdminController extends Controller
                     if ($daily['worked_formatted'] !== '00:00') {
                         $diasTrabalhados++;
                     }
-                    
-                    // Lógica simplificada confiando no motor
                     if ($daily['status'] === 'absence') {
                         $faltasIntegrais++;
                     }
-
-                    if ($daily['balance_minutes'] > 0) {
-                        $extrasMinutos += $daily['balance_minutes'];
-                    } elseif ($daily['balance_minutes'] < 0) {
-                        $atrasosMinutos += abs($daily['balance_minutes']);
-                    }
-                    $bancoMinutos += $daily['balance_minutes'];
+                    
+                    $cargaMensalMin += $daily['expected_minutes'] ?? 0;
+                    $totalTrabalhadoMin += $daily['worked_minutes'] ?? 0;
                 }
+
+                // Carga Mensal Total - Horas Trabalhadas
+                $saldoMin = $totalTrabalhadoMin - $cargaMensalMin;
 
                 $formatMin = fn($min) => sprintf('%02d:%02d', floor($min / 60), $min % 60);
                 $formatSaldo = fn($min) => ($min < 0 ? '-' : '+') . sprintf('%02d:%02d', abs(intdiv($min, 60)), abs($min % 60));
@@ -291,9 +287,9 @@ class AdminController extends Controller
                     $emp->department->name ?? 'Sem Lotacao',
                     $diasTrabalhados,
                     $faltasIntegrais,
-                    $formatMin($extrasMinutos),
-                    $formatMin($atrasosMinutos),
-                    $formatSaldo($bancoMinutos)
+                    $formatMin($cargaMensalMin),
+                    $formatMin($totalTrabalhadoMin),
+                    $formatSaldo($saldoMin)
                 ];
                 fputcsv($file, $row, ';');
             }
