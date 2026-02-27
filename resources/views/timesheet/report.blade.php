@@ -183,19 +183,20 @@
                             @php
                             $rowClass = 'bg-white';
 
-                            // Pinta a linha de vermelho claro se for Falta Integral
                             if($day['status'] === 'absence' || ($day['status'] === 'delay' && $day['worked_formatted'] === '00:00' && !$day['is_weekend'])) {
                             $rowClass = 'bg-red-50/70';
-                            } elseif($day['status'] === 'divergent' || $day['status'] === 'incomplete') { // <-- INCOMPLETE ADICIONADO AQUI
-                                $rowClass='bg-yellow-50' ;
-                                } elseif($day['status']==='holiday' ) {
-                                $rowClass='bg-blue-50' ;
-                                } elseif($day['is_weekend']) {
-                                $rowClass='bg-gray-100' ;
-                                }
-                                @endphp
+                            } elseif($day['status'] === 'divergent' || $day['status'] === 'incomplete') {
+                            $rowClass='bg-yellow-50';
+                            } elseif($day['status']==='holiday' ) {
+                            $rowClass='bg-blue-50';
+                            } elseif($day['status'] === 'vacation') {
+                            $rowClass='bg-indigo-50/50';
+                            } elseif($day['is_weekend']) {
+                            $rowClass='bg-gray-100';
+                            }
+                            @endphp
 
-                                <tr class="hover:bg-indigo-50 {{ $rowClass }} print:bg-white print:text-black">
+                            <tr class="hover:bg-indigo-50 {{ $rowClass }} print:bg-white print:text-black">
                                 <td class="px-4 py-3">
                                     <div class="font-bold text-gray-800">{{ $day['date'] }}</div>
                                     <div class="text-xs text-gray-500 capitalize">{{ $day['day_name'] }}</div>
@@ -211,18 +212,20 @@
                                         <span class="text-red-600 font-black">Falta Integral</span>
                                         @elseif($day['status'] === 'delay')
                                         <span class="text-orange-500 font-bold">Atraso / Saída</span>
-
                                         @elseif($day['status'] === 'incomplete')
                                         <span class="text-yellow-600 font-bold">Falta Batida</span>
                                         @elseif($day['status'] === 'divergent')
                                         <span class="text-yellow-600 font-bold">Incompleto</span>
-
                                         @elseif($day['status'] === 'day_off')
                                         <span class="text-gray-500">Folga / DSR</span>
                                         @elseif($day['status'] === 'holiday')
                                         <span class="text-blue-600">Feriado</span>
                                         @elseif($day['status'] === 'justified')
                                         <span class="text-purple-600">Atestado/Licença</span>
+                                        @elseif($day['status'] === 'vacation')
+                                        <span class="px-2 py-0.5 bg-indigo-100 text-indigo-800 text-[11px] font-black uppercase rounded border border-indigo-200">
+                                            FÉRIAS
+                                        </span>
                                         @endif
                                     </div>
                                     @if(!empty($day['observation']))
@@ -254,8 +257,8 @@
                                         <span class="text-gray-400">-</span>
                                         @endif
                                 </td>
-                                </tr>
-                                @endforeach
+                            </tr>
+                            @endforeach
                         </tbody>
                     </table>
                 </div>

@@ -8,6 +8,7 @@ use App\Models\ShiftException;
 use App\Models\DepartmentShiftException;
 use App\Models\Holiday;
 use Carbon\Carbon;
+use App\Models\Vacation;
 
 class TimeCalculationService
 {
@@ -20,6 +21,25 @@ class TimeCalculationService
             ->whereDate('punch_time', $dateObj->format('Y-m-d'))
             ->orderBy('punch_time', 'asc')
             ->get();
+
+        $punches = $employee->punchLogs()
+            ->whereDate('punch_time', $dateObj->format('Y-m-d'))
+            ->orderBy('punch_time', 'asc')
+            ->get();
+
+        // ==========================================
+        // PRIORIDADE SUPREMA: FÉRIAS
+        // ==========================================
+        $vacation = Vacation::where('employee_id', $employee->id)
+            ->whereDate('start_date', '<=', $date)
+            ->whereDate('end_date', '>=', $date)
+            ->first();
+
+        if ($vacation) {
+            $punchTimes = $punches->map(fn($p) => Carbon::parse($p->punch_time)->format('H:i'))->toArray();
+            // Retorna 'justified' para manter a cor azul do layout, mas escreve "Férias"
+            return $this->buildResult($dateObj, $punchTimes, 0, 0, 0, 'vacation', '', $isWeekend);
+        }
 
         // ==========================================
         // PRIORIDADE 0: ATESTADOS E AUSÊNCIAS (Soberano)
