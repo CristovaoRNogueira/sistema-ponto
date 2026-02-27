@@ -46,17 +46,17 @@ class DashboardService
         return $query->orderBy('start_date', 'desc')->paginate(10, ['*'], 'absences_page');
     }
 
-    public function getConsolidatedRankings($companyId, Carbon $startDate, Carbon $endDate, $departmentId = null)
+    public function getConsolidatedRankings($companyId, Carbon $startDate, Carbon $endDate, $departmentId = null, $filterDate = null)
     {
-        // Chave v7: Atualiza o cache imediatamente!
-        $cacheKey = "dash_v7_{$companyId}_{$startDate->format('Ym')}_{$departmentId}";
+        // Chave do cache atualizada para suportar o filtro de data exclusivo
+        $cacheKey = "dash_v13_{$companyId}_{$startDate->format('Ym')}_{$departmentId}_{$filterDate}";
 
-        return Cache::remember($cacheKey, now()->addMinutes(5), function () use ($companyId, $startDate, $endDate, $departmentId) {
+        return Cache::remember($cacheKey, now()->addMinutes(5), function () use ($companyId, $startDate, $endDate, $departmentId, $filterDate) {
 
             $limitDate = $endDate->isFuture() ? Carbon::today() : clone $endDate;
 
             if ($limitDate->lt($startDate)) {
-                return ['delays' => [], 'absences' => [], 'bankHours' => [], 'working_days' => 0];
+                return ['delays' => [], 'absences' => [], 'bankHours' => [], 'working_days' => 0, 'total_monthly_absences' => 0];
             }
 
             $query = Employee::where('company_id', $companyId)
@@ -72,6 +72,7 @@ class DashboardService
             $delays = [];
             $absences = [];
             $bankHours = [];
+            $totalMonthlyAbsences = 0; // Guardião do total do mês para o card do topo!
 
             foreach ($employees as $emp) {
                 $qtdAtrasos = 0;
@@ -84,12 +85,15 @@ class DashboardService
                 $ultimoAtraso = null;
                 $diasTrabalhados = 0;
 
+                $atrasouNoDiaFiltrado = false;
+                $faltouNoDiaFiltrado = false;
+
                 $effectiveShift = $emp->shift ?? $emp->department?->shift ?? $emp->department?->parent?->shift;
                 $tolerance = $effectiveShift ? $effectiveShift->tolerance_minutes : 0;
 
                 for ($date = $startDate->copy(); $date->lte($limitDate); $date->addDay()) {
-
-                    $report = $this->timeService->calculateDailyTimesheet($emp, $date->format('Y-m-d'));
+                    $dateString = $date->format('Y-m-d');
+                    $report = $this->timeService->calculateDailyTimesheet($emp, $dateString);
 
                     $workedMin = $report['worked_minutes'] ?? 0;
                     $expectedMin = $report['expected_minutes'] ?? 0;
@@ -100,51 +104,65 @@ class DashboardService
                         $diasTrabalhados++;
                     }
 
+                    // A Carga Mensal e Saldo são sempre calculados para o mês inteiro (ignora o filtro de data)
                     $cargaMensalMin += $expectedMin;
                     $totalTrabalhadoMin += $workedMin;
 
                     $isFaltaIntegral = false;
                     if ($status === 'absence') {
                         $isFaltaIntegral = true;
-                    } elseif ($status === 'delay' && $report['worked_formatted'] === '00:00' && !$report['is_weekend'] && $status !== 'holiday' && $status !== 'justified') {
+                    } elseif ($status === 'delay' && $report['worked_formatted'] === '00:00' && !$report['is_weekend'] && $status !== 'holiday' && $status !== 'justified' && $status !== 'vacation') {
                         $isFaltaIntegral = true;
                     }
 
                     if ($isFaltaIntegral) {
                         $diasFalta++;
                         $ultimaFalta = $date->format('d/m/Y');
+                        if ($filterDate && $dateString === $filterDate) {
+                            $faltouNoDiaFiltrado = true;
+                        }
                     } else {
                         if ($balanceMin < 0 && abs($balanceMin) > $tolerance && in_array($status, ['delay', 'incomplete', 'divergent'])) {
                             $qtdAtrasos++;
                             $ultimoAtraso = $date->format('d/m/Y');
+                            if ($filterDate && $dateString === $filterDate) {
+                                $atrasouNoDiaFiltrado = true;
+                            }
                         }
                     }
                 }
 
                 $saldoLiquido = $totalTrabalhadoMin - $cargaMensalMin;
-
                 $formatMin = fn($min) => sprintf('%02d:%02d', floor($min / 60), $min % 60);
                 $formatSaldo = fn($min) => ($min < 0 ? '-' : '+') . sprintf('%02d:%02d', abs(intdiv($min, 60)), abs($min % 60));
 
+                if ($diasFalta >= 1) {
+                    $totalMonthlyAbsences++; // Soma para o painel principal, independentemente do filtro
+                }
+
                 if ($qtdAtrasos > 0) {
-                    $delays[] = [
-                        'employee' => $emp,
-                        'qtd' => $qtdAtrasos,
-                        'saldo_min' => $saldoLiquido,
-                        'formatted_saldo' => $formatSaldo($saldoLiquido),
-                        'percent' => round(($qtdAtrasos / $diasUteisMes) * 100, 1),
-                        'last' => $ultimoAtraso
-                    ];
+                    if (!$filterDate || $atrasouNoDiaFiltrado) {
+                        $delays[] = [
+                            'employee' => $emp,
+                            'qtd' => $qtdAtrasos,
+                            'saldo_min' => $saldoLiquido,
+                            'formatted_saldo' => $formatSaldo($saldoLiquido),
+                            'percent' => round(($qtdAtrasos / $diasUteisMes) * 100, 1),
+                            'last' => $ultimoAtraso
+                        ];
+                    }
                 }
 
                 if ($diasFalta >= 1) {
-                    $absences[] = [
-                        'employee' => $emp,
-                        'days' => $diasFalta,
-                        'last' => $ultimaFalta,
-                        'never_clocked_in' => ($diasTrabalhados === 0),
-                        'critical' => $diasFalta >= 3
-                    ];
+                    if (!$filterDate || $faltouNoDiaFiltrado) {
+                        $absences[] = [
+                            'employee' => $emp,
+                            'days' => $diasFalta,
+                            'last' => $ultimaFalta,
+                            'never_clocked_in' => ($diasTrabalhados === 0),
+                            'critical' => $diasFalta >= 3
+                        ];
+                    }
                 }
 
                 if ($cargaMensalMin > 0 || $saldoLiquido != 0 || $totalTrabalhadoMin > 0) {
@@ -162,15 +180,14 @@ class DashboardService
 
             usort($delays, fn($a, $b) => $b['qtd'] <=> $a['qtd']);
             usort($absences, fn($a, $b) => $a['days'] <=> $b['days']);
-
-            // INVERTIDO: SALDO DO MAIOR PARA O MENOR (Mais extras no topo, mais dívidas em baixo)
             usort($bankHours, fn($a, $b) => $b['balance_min'] <=> $a['balance_min']);
 
             return [
                 'delays' => $delays,
                 'absences' => $absences,
                 'bankHours' => $bankHours,
-                'working_days' => $diasUteisMes
+                'working_days' => $diasUteisMes,
+                'total_monthly_absences' => $totalMonthlyAbsences
             ];
         });
     }

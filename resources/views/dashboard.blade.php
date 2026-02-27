@@ -57,7 +57,7 @@
                 </div>
                 <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100 border-l-4 border-red-500">
                     <p class="text-sm text-gray-500 font-medium">Faltas Integrais</p>
-                    <p class="text-2xl font-bold text-gray-800">{{ count($rankings['absences']) }}</p>
+                    <p class="text-2xl font-bold text-gray-800">{{ $rankings['total_monthly_absences'] ?? count($rankings['absences']) }}</p>
                 </div>
             </div>
 
@@ -107,16 +107,28 @@
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
                 <div class="bg-white shadow-sm sm:rounded-lg border border-gray-200 flex flex-col" x-data="{ expanded: false }">
-                    <div class="p-4 border-b bg-orange-50 flex justify-between items-center">
-                        <h3 class="font-bold text-orange-800 uppercase text-sm">Atrasos e Saídas Antecipadas</h3>
-                        <span class="text-xs font-bold text-orange-600 bg-orange-100 px-2 py-1 rounded-full">{{ count($rankings['delays']) }} total</span>
+                    <div class="p-4 border-b bg-orange-50 flex flex-wrap justify-between items-center gap-2">
+                        <div class="flex items-center space-x-2">
+                            <h3 class="font-bold text-orange-800 uppercase text-sm">Atrasos e Saídas</h3>
+                            <span class="text-xs font-bold text-orange-600 bg-orange-100 px-2 py-1 rounded-full hidden sm:inline-block">{{ count($rankings['delays']) }} listados</span>
+                        </div>
+                        <form method="GET" action="{{ route('dashboard') }}" class="flex items-center space-x-2 text-xs m-0">
+                            <input type="hidden" name="department_id" value="{{ $departmentId ?? '' }}">
+                            <input type="hidden" name="month" value="{{ $month }}">
+                            <input type="hidden" name="year" value="{{ $year }}">
+                            <span class="font-bold text-orange-700 hidden lg:inline">Dia exato:</span>
+                            <input type="date" name="filter_date" value="{{ $filterDate ?? '' }}" onchange="this.form.submit()" class="text-xs border-orange-300 rounded shadow-sm py-1 focus:ring-orange-500 focus:border-orange-500 cursor-pointer" title="Verificar atrasos neste dia específico">
+                            @if(!empty($filterDate))
+                            <a href="{{ route('dashboard', ['department_id' => $departmentId, 'month' => $month, 'year' => $year]) }}" class="text-red-500 hover:text-red-700 font-bold ml-1 text-sm transition" title="Limpar Filtro de Data">✖</a>
+                            @endif
+                        </form>
                     </div>
                     <div class="flex-1 overflow-y-auto">
                         <table class="w-full text-left text-sm">
                             <thead class="bg-white border-b">
                                 <tr>
                                     <th class="px-4 py-2 text-gray-600">Servidor</th>
-                                    <th class="px-4 py-2 text-center text-gray-600">Dias com Atraso</th>
+                                    <th class="px-4 py-2 text-center text-gray-600">{{ empty($filterDate) ? 'Dias com Atraso' : 'Atrasou no Dia?' }}</th>
                                     <th class="px-4 py-2 text-center text-gray-600">Saldo Líquido (Mês)</th>
                                     <th class="px-4 py-2 text-center text-gray-600">Ação</th>
                                 </tr>
@@ -129,8 +141,13 @@
                                         <div class="text-xs text-gray-500">{{ $delay['employee']->department->name ?? 'N/A' }}</div>
                                     </td>
                                     <td class="px-4 py-3 text-center">
+                                        @if(empty($filterDate))
                                         <span class="font-bold text-orange-600">{{ $delay['qtd'] }} dias</span>
                                         <div class="text-[10px] text-gray-400 mt-0.5">Último: {{ $delay['last'] }}</div>
+                                        @else
+                                        <span class="font-bold text-orange-600 uppercase text-xs">Sim</span>
+                                        <div class="text-[10px] text-gray-400 mt-0.5">Total Mês: {{ $delay['qtd'] }} dias</div>
+                                        @endif
                                     </td>
                                     <td class="px-4 py-3 text-center font-mono text-lg font-bold">
                                         @if($delay['saldo_min'] > 0)
@@ -147,7 +164,7 @@
                                 </tr>
                                 @empty
                                 <tr>
-                                    <td colspan="4" class="px-4 py-6 text-center text-gray-500">Nenhum atraso crítico no período.</td>
+                                    <td colspan="4" class="px-4 py-6 text-center text-gray-500">Nenhum atraso no período filtrado.</td>
                                 </tr>
                                 @endforelse
                             </tbody>
@@ -161,16 +178,28 @@
                 </div>
 
                 <div class="bg-white shadow-sm sm:rounded-lg border border-gray-200 flex flex-col" x-data="{ expanded: false }">
-                    <div class="p-4 border-b bg-red-50 flex justify-between items-center">
-                        <h3 class="font-bold text-red-800 uppercase text-sm">Faltas Integrais (Sem Ponto)</h3>
-                        <span class="text-xs font-bold text-red-600 bg-red-100 px-2 py-1 rounded-full">{{ count($rankings['absences']) }} total</span>
+                    <div class="p-4 border-b bg-red-50 flex flex-wrap justify-between items-center gap-2">
+                        <div class="flex items-center space-x-2">
+                            <h3 class="font-bold text-red-800 uppercase text-sm">Faltas Integrais</h3>
+                            <span class="text-xs font-bold text-red-600 bg-red-100 px-2 py-1 rounded-full hidden sm:inline-block">{{ count($rankings['absences']) }} listados</span>
+                        </div>
+                        <form method="GET" action="{{ route('dashboard') }}" class="flex items-center space-x-2 text-xs m-0">
+                            <input type="hidden" name="department_id" value="{{ $departmentId ?? '' }}">
+                            <input type="hidden" name="month" value="{{ $month }}">
+                            <input type="hidden" name="year" value="{{ $year }}">
+                            <span class="font-bold text-red-700 hidden lg:inline">Dia exato:</span>
+                            <input type="date" name="filter_date" value="{{ $filterDate ?? '' }}" onchange="this.form.submit()" class="text-xs border-red-300 rounded shadow-sm py-1 focus:ring-red-500 focus:border-red-500 cursor-pointer" title="Verificar faltas neste dia específico">
+                            @if(!empty($filterDate))
+                            <a href="{{ route('dashboard', ['department_id' => $departmentId, 'month' => $month, 'year' => $year]) }}" class="text-red-500 hover:text-red-700 font-bold ml-1 text-sm transition" title="Limpar Filtro de Data">✖</a>
+                            @endif
+                        </form>
                     </div>
                     <div class="flex-1 overflow-y-auto">
                         <table class="w-full text-left text-sm">
                             <thead class="bg-white border-b">
                                 <tr>
                                     <th class="px-4 py-2 text-gray-600">Servidor</th>
-                                    <th class="px-4 py-2 text-center text-gray-600">Dias de Falta</th>
+                                    <th class="px-4 py-2 text-center text-gray-600">{{ empty($filterDate) ? 'Dias de Falta' : 'Faltou no Dia?' }}</th>
                                     <th class="px-4 py-2 text-center text-gray-600">Ação</th>
                                 </tr>
                             </thead>
@@ -183,15 +212,16 @@
                                     </td>
                                     <td class="px-4 py-3 text-center">
                                         @if(isset($absence['never_clocked_in']) && $absence['never_clocked_in'])
-                                        <span class="px-2 py-1 bg-red-600 text-white font-black text-[10px] rounded uppercase shadow-sm tracking-wide">
-                                            Nenhum Registro
-                                        </span>
+                                        <span class="px-2 py-1 bg-red-600 text-white font-black text-[10px] rounded uppercase shadow-sm tracking-wide">Nenhum Registro</span>
                                         <div class="text-[10px] text-gray-500 mt-1">Ausente o mês todo</div>
                                         @else
-                                        <span class="px-2 py-1 rounded-full text-xs font-bold {{ $absence['critical'] ? 'bg-red-200 text-red-800' : 'bg-yellow-100 text-yellow-800' }}">
-                                            {{ $absence['days'] }} dias
-                                        </span>
+                                        @if(empty($filterDate))
+                                        <span class="px-2 py-1 rounded-full text-xs font-bold {{ $absence['critical'] ? 'bg-red-200 text-red-800' : 'bg-yellow-100 text-yellow-800' }}">{{ $absence['days'] }} dias</span>
                                         <div class="text-[10px] text-gray-400 mt-1">Última: {{ $absence['last'] }}</div>
+                                        @else
+                                        <span class="font-bold text-red-600 uppercase text-xs">Sim</span>
+                                        <div class="text-[10px] text-gray-400 mt-0.5">Total Mês: {{ $absence['days'] }} dias</div>
+                                        @endif
                                         @endif
                                     </td>
                                     <td class="px-4 py-3 text-center">
@@ -200,7 +230,7 @@
                                 </tr>
                                 @empty
                                 <tr>
-                                    <td colspan="3" class="px-4 py-6 text-center text-gray-500">Nenhum servidor com ausências registradas.</td>
+                                    <td colspan="3" class="px-4 py-6 text-center text-gray-500">Nenhum servidor com ausências no período filtrado.</td>
                                 </tr>
                                 @endforelse
                             </tbody>

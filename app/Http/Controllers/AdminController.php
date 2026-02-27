@@ -34,6 +34,7 @@ class AdminController extends Controller
         $month = $request->input('month', Carbon::now()->month);
         $year = $request->input('year', Carbon::now()->year);
         $departmentId = $request->input('department_id');
+        $filterDate = $request->input('filter_date'); // <-- NOVO
 
         // ==== TRAVA DE SEGURANÇA ENTERPRISE ====
         if (!Auth::user()->isAdmin() && Auth::user()->isOperator()) {
@@ -64,12 +65,13 @@ class AdminController extends Controller
             ->get();
 
         $absences = $this->dashboardService->getActiveAbsences($companyId, $startDate, $endDate, $departmentId);
-        $rankings = $this->dashboardService->getConsolidatedRankings($companyId, $startDate, $endDate, $departmentId);
+        $rankings = $this->dashboardService->getConsolidatedRankings($companyId, $startDate, $endDate, $departmentId, $filterDate); // <-- NOVO PARÂMETRO
 
         return view('dashboard', compact(
             'month',
             'year',
             'departmentId',
+            'filterDate', // <-- NOVA VARIÁVEL
             'secretariats',
             'totalEmployees',
             'chartLabels',
