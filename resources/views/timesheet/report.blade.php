@@ -299,6 +299,44 @@
             </div>
             @endif
 
+            @if(isset($manualPunches) && $manualPunches->count() > 0)
+            <div class="mt-8 bg-white shadow-sm sm:rounded-lg border border-gray-200 overflow-hidden print:hidden">
+                <div class="bg-indigo-50 px-4 py-3 border-b border-indigo-100 flex justify-between items-center">
+                    <h3 class="font-bold text-indigo-800 uppercase text-sm">Batidas Manuais (Neste Mês)</h3>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full text-left text-sm whitespace-nowrap">
+                        <thead class="bg-gray-50 border-b">
+                            <tr>
+                                <th class="px-4 py-2 text-gray-600">Data e Hora da Batida</th>
+                                <th class="px-4 py-2 text-gray-600">Justificativa</th>
+                                <th class="px-4 py-2 text-center text-gray-600">Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200">
+                            @foreach($manualPunches as $punch)
+                            <tr class="hover:bg-gray-50 transition">
+                                <td class="px-4 py-3 font-medium text-gray-900 font-mono">
+                                    {{ \Carbon\Carbon::parse($punch->punch_time)->format('d/m/Y \à\s H:i') }}
+                                </td>
+                                <td class="px-4 py-3 text-gray-600">{{ $punch->justification ?? 'Inserido manualmente pelo RH' }}</td>
+                                <td class="px-4 py-3 text-center">
+                                    <form method="POST" action="{{ route('punch-logs.destroy', $punch->id) }}" onsubmit="return confirm('Tem certeza que deseja excluir esta batida manual? As horas do dia serão recalculadas imediatamente.');">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button type="submit" class="bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1.5 rounded text-xs font-bold uppercase transition shadow-sm border border-red-200">
+                                            Excluir
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            @endif
+
             <div class="hidden print:flex justify-between mt-16 pt-8 px-12">
                 <div class="text-center w-64 border-t border-gray-800 pt-2">
                     <p class="text-sm font-bold">Assinatura do Servidor</p>

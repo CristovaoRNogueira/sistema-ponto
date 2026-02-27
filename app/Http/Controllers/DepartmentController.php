@@ -21,11 +21,17 @@ class DepartmentController extends Controller
 
         $shifts = Shift::where('company_id', $companyId)->orderBy('name')->get();
 
-        // CORREÇÃO: Puxa todos os departamentos para o modal de Exceção
         $departments = Department::where('company_id', $companyId)->orderBy('name')->get();
 
-        // CORREÇÃO: Adicionado 'departments' no compact()
-        return view('departments.index', compact('secretariats', 'shifts', 'departments'));
+        // NOVO: Busca o histórico de recessos/exceções dos departamentos desta prefeitura
+        $exceptions = \App\Models\DepartmentShiftException::with('department')
+            ->whereHas('department', function ($q) use ($companyId) {
+                $q->where('company_id', $companyId);
+            })
+            ->orderBy('exception_date', 'desc')
+            ->get();
+
+        return view('departments.index', compact('secretariats', 'shifts', 'departments', 'exceptions'));
     }
 
     public function store(Request $request)

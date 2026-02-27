@@ -162,6 +162,32 @@ class AdminController extends Controller
         return redirect()->back()->with('success', 'Atestado/Ausência removido com sucesso! O espelho e o saldo mensal foram recalculados.');
     }
 
+    // Excluir Batida Manual
+    public function destroyPunchLog(PunchLog $punchLog)
+    {
+        if ($punchLog->employee->company_id !== Auth::user()->company_id) {
+            abort(403, 'Acesso negado.');
+        }
+
+        $punchLog->delete();
+        \Illuminate\Support\Facades\Cache::flush();
+
+        return redirect()->back()->with('success', 'Batida manual excluída com sucesso! O espelho foi recalculado.');
+    }
+
+    // Excluir Exceção / Recesso do Departamento
+    public function destroyDepartmentException(DepartmentShiftException $exception)
+    {
+        if ($exception->department->company_id !== Auth::user()->company_id) {
+            abort(403, 'Acesso negado.');
+        }
+
+        $exception->delete();
+        \Illuminate\Support\Facades\Cache::flush();
+
+        return redirect()->back()->with('success', 'Recesso / Exceção do departamento excluída! Os saldos foram restaurados.');
+    }
+
     public function storeShiftSwap(Request $request)
     {
         $request->validate([
@@ -241,6 +267,13 @@ class AdminController extends Controller
                     });
             })->orderBy('start_date', 'desc')->get();
 
+            // Busca as batidas inseridas manualmente neste mês
+        $manualPunches = PunchLog::where('employee_id', $employee->id)
+            ->whereBetween('punch_time', [$startDate->copy()->startOfDay(), $endDate->copy()->endOfDay()])
+            ->where('is_manual', true)
+            ->orderBy('punch_time', 'desc')
+            ->get();
+
         $report = [];
         $totals = ['expected_minutes' => 0, 'worked_minutes' => 0, 'overtime_minutes' => 0, 'delay_minutes' => 0];
 
@@ -268,7 +301,7 @@ class AdminController extends Controller
         Carbon::setLocale('pt_BR');
         $period = $startDate->translatedFormat('F / Y');
 
-        return view('timesheet.report', compact('employee', 'report', 'totalsFormatted', 'period', 'absences'));
+        return view('timesheet.report', compact('employee', 'report', 'totalsFormatted', 'period', 'absences', 'manualPunches'));
     }
 
     private function parseMinutes(string $hhmm): int

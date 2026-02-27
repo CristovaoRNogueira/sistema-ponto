@@ -58,6 +58,8 @@ Route::middleware('auth')->group(function () {
         Route::post('/timesheet/{employee}/manual-punch', [EmployeeController::class, 'storeManualPunch'])->name('timesheet.manual-punch');
         Route::post('/timesheet/{employee}/absence', [EmployeeController::class, 'storeAbsence'])->name('timesheet.absence');
         Route::delete('/absences/{absence}', [App\Http\Controllers\AdminController::class, 'destroyAbsence'])->name('absences.destroy');
+        Route::delete('/punch-logs/{punchLog}', [App\Http\Controllers\AdminController::class, 'destroyPunchLog'])->name('punch-logs.destroy');
+        Route::delete('/department-exceptions/{exception}', [App\Http\Controllers\AdminController::class, 'destroyDepartmentException'])->name('departments.exceptions.destroy');
 
         // Rota de Bulk Sync e Importação (Sincronização do Relógio)
         Route::post('/devices/{device}/sync', [DeviceController::class, 'syncEmployees'])->name('devices.sync');
