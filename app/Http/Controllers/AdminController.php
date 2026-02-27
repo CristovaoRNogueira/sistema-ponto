@@ -17,6 +17,8 @@ use App\Services\DashboardService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
+use App\Models\User;
+use Illuminate\Support\Facades\Hash;
 
 class AdminController extends Controller
 {
@@ -100,13 +102,14 @@ class AdminController extends Controller
     {
         $request->validate([
             'name' => 'required|string|max:255',
-            'cpf' => 'nullable|string|max:14',
+            'cpf' => 'required|string|max:14|unique:employees,cpf', // CPF obrigatório e único
             'pis' => 'required|string|max:20',
             'device_id' => 'required|exists:devices,id'
         ]);
 
         $companyId = Auth::user()->company_id;
 
+        // 1. Cria o Servidor (Ficha Cadastral)
         $employee = new Employee();
         $employee->forceFill([
             'company_id' => $companyId,
@@ -119,10 +122,25 @@ class AdminController extends Controller
             'is_active' => true,
         ])->save();
 
+        // 2. Cria AUTOMATICAMENTE o Usuário de Login (Acesso ao Portal)
+        // Verifica se já existe usuário com este CPF para não dar erro
+        if (!User::where('cpf', $request->cpf)->exists()) {
+            User::create([
+                'name' => $request->name,
+                'cpf' => $request->cpf,
+                'email' => $request->cpf . '@servidor.local', // Email fictício apenas para o banco não reclamar
+                'password' => Hash::make($request->cpf), // SENHA PADRÃO = CPF (Sem pontuação se digitou sem)
+                'company_id' => $companyId,
+                'role' => 'employee', // Garante que ele é perfil funcionário
+                'department_id' => $request->department_id
+            ]);
+        }
+
+        // 3. Envia para o Relógio
         $device = Device::where('company_id', $companyId)->findOrFail($request->device_id);
         $this->commandService->sendEmployeeToDevice($employee, $device);
 
-        return redirect()->back()->with('success', 'Servidor registrado e enviado ao relógio!');
+        return redirect()->back()->with('success', 'Servidor cadastrado! O acesso dele ao portal foi criado (Login: CPF, Senha: CPF).');
     }
 
     public function syncEmployeeToDevice(Request $request, Employee $employee)

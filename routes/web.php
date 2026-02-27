@@ -11,6 +11,11 @@ use App\Http\Controllers\DeviceController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\HolidayController;
 
+use App\Models\Employee;
+use App\Models\User;
+use Illuminate\Support\Facades\Hash;
+
+
 Route::get('/', function () {
     return redirect()->route('login');
 });
@@ -26,6 +31,10 @@ Route::middleware('auth')->group(function () {
         // 1. Dashboard (Apenas Gráficos)
         Route::get('/dashboard', [AdminController::class, 'index'])->name('dashboard');
         Route::get('/admin/export/monthly', [AdminController::class, 'exportMonthlyClosing'])->name('admin.export.monthly');
+        // Rota da Área do Funcionário
+        Route::get('/meu-ponto', [App\Http\Controllers\EmployeePortalController::class, 'index'])
+            ->middleware(['auth']) // Removido middleware de company/admin se houver, pois é aberto a todos logados
+            ->name('employee.timesheet');
 
         // 2. Gestão de Servidores (Telas Separadas)
         Route::get('/admin/employees', [EmployeeController::class, 'index'])->name('employees.index');

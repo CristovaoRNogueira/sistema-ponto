@@ -21,13 +21,11 @@ class LoginRequest extends FormRequest
 
     /**
      * Get the validation rules that apply to the request.
-     *
-     * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>
      */
     public function rules(): array
     {
         return [
-            'email' => ['required', 'string', 'email'],
+            'login' => ['required', 'string'],
             'password' => ['required', 'string'],
         ];
     }
@@ -41,11 +39,51 @@ class LoginRequest extends FormRequest
     {
         $this->ensureIsNotRateLimited();
 
-        if (! Auth::attempt($this->only('email', 'password'), $this->boolean('remember'))) {
+        $login = $this->input('login');
+        $password = $this->input('password');
+
+        // LÓGICA INTELIGENTE DE LOGIN (EMAIL OU CPF)
+        $isAuthenticated = false;
+
+        // 1. Tenta validar como E-mail
+        if (filter_var($login, FILTER_VALIDATE_EMAIL)) {
+            if (Auth::attempt(['email' => $login, 'password' => $password], $this->boolean('remember'))) {
+                $isAuthenticated = true;
+            }
+        } else {
+            // 2. Se não é e-mail, assume que é CPF
+
+            // Opção A: Tenta exatamente como o utilizador digitou
+            if (!$isAuthenticated && Auth::attempt(['cpf' => $login, 'password' => $password], $this->boolean('remember'))) {
+                $isAuthenticated = true;
+            }
+
+            // Opção B: Tenta apenas com números (Limpo)
+            // Útil se o banco guardou "12345678900" e o utilizador digitou "123.456.789-00"
+            $cpfOnlyNumbers = preg_replace('/[^0-9]/', '', $login);
+            if (!$isAuthenticated && Auth::attempt(['cpf' => $cpfOnlyNumbers, 'password' => $password], $this->boolean('remember'))) {
+                $isAuthenticated = true;
+            }
+
+            // Opção C: Tenta formatado com pontos e traço
+            // Útil se o banco guardou "123.456.789-00" e o utilizador digitou "12345678900"
+            if (!$isAuthenticated && strlen($cpfOnlyNumbers) === 11) {
+                $cpfFormatted = substr($cpfOnlyNumbers, 0, 3) . '.' .
+                    substr($cpfOnlyNumbers, 3, 3) . '.' .
+                    substr($cpfOnlyNumbers, 6, 3) . '-' .
+                    substr($cpfOnlyNumbers, 9, 2);
+
+                if (Auth::attempt(['cpf' => $cpfFormatted, 'password' => $password], $this->boolean('remember'))) {
+                    $isAuthenticated = true;
+                }
+            }
+        }
+
+        if (!$isAuthenticated) {
             RateLimiter::hit($this->throttleKey());
 
             throw ValidationException::withMessages([
-                'email' => trans('auth.failed'),
+                'login' => trans('auth.failed'),
             ]);
         }
 
@@ -68,7 +106,7 @@ class LoginRequest extends FormRequest
         $seconds = RateLimiter::availableIn($this->throttleKey());
 
         throw ValidationException::withMessages([
-            'email' => trans('auth.throttle', [
+            'login' => trans('auth.throttle', [
                 'seconds' => $seconds,
                 'minutes' => ceil($seconds / 60),
             ]),
@@ -80,6 +118,6 @@ class LoginRequest extends FormRequest
      */
     public function throttleKey(): string
     {
-        return Str::transliterate(Str::lower($this->string('email')).'|'.$this->ip());
+        return Str::transliterate(Str::lower($this->input('login')) . '|' . $this->ip());
     }
 }

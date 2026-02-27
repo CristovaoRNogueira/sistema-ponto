@@ -40,9 +40,9 @@
                     @csrf
 
                     <div>
-                        <label for="email" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">E-mail de Acesso</label>
-                        <input id="email" type="email" name="email" value="{{ old('email') }}" required autofocus autocomplete="username" placeholder="seuemail@exemplo.com" class="block w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm py-2.5 px-3 transition" />
-                        <x-input-error :messages="$errors->get('email')" class="mt-2" />
+                        <x-input-label for="login" value="CPF" />
+                        <x-text-input id="login" class="block mt-1 w-full" type="text" name="login" :value="old('login')" required autofocus autocomplete="username" placeholder=" " />
+                        <x-input-error :messages="$errors->get('login')" class="mt-2" />
                     </div>
 
                     <div>

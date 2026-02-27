@@ -9,6 +9,14 @@
                 </div>
 
                 <div class="hidden space-x-8 sm:-my-px sm:ms-10 sm:flex">
+
+                    @if(!Auth::user()->isAdmin() && !Auth::user()->isOperator())
+                    <x-nav-link :href="route('employee.timesheet')" :active="request()->routeIs('employee.timesheet')">
+                        {{ __('Meu Espelho') }}
+                    </x-nav-link>
+                    @endif
+
+                    @if(Auth::user()->isAdmin() || Auth::user()->isOperator())
                     <x-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                         {{ __('Painel Geral') }}
                     </x-nav-link>
@@ -18,8 +26,10 @@
                     <x-nav-link :href="route('vacations.index')" :active="request()->routeIs('vacations.*')">
                         {{ __('Férias') }}
                     </x-nav-link>
+                    @endif
                 </div>
 
+                @if(Auth::user()->isAdmin() || Auth::user()->isOperator())
                 <div class="hidden sm:flex sm:items-center sm:ms-6">
                     <x-dropdown align="left" width="48">
                         <x-slot name="trigger">
@@ -41,6 +51,7 @@
                         </x-slot>
                     </x-dropdown>
                 </div>
+                @endif
 
             </div>
 
@@ -89,6 +100,13 @@
 
     <div :class="{'block': open, 'hidden': ! open}" class="hidden sm:hidden">
         <div class="pt-2 pb-3 space-y-1">
+            @if(!Auth::user()->isAdmin() && !Auth::user()->isOperator())
+            <x-responsive-nav-link :href="route('employee.timesheet')" :active="request()->routeIs('employee.timesheet')">
+                {{ __('Meu Espelho') }}
+            </x-responsive-nav-link>
+            @endif
+
+            @if(Auth::user()->isAdmin() || Auth::user()->isOperator())
             <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                 {{ __('Painel Geral') }}
             </x-responsive-nav-link>
@@ -98,8 +116,11 @@
             <x-responsive-nav-link :href="route('vacations.index')" :active="request()->routeIs('vacations.*')">
                 {{ __('Férias') }}
             </x-responsive-nav-link>
+            @endif
 
             <div class="border-t border-gray-100 my-2"></div>
+
+            @if(Auth::user()->isAdmin() || Auth::user()->isOperator())
             <div class="px-4 py-2 text-xs font-bold text-gray-400 uppercase tracking-wider">Cadastros Base</div>
 
             <x-responsive-nav-link :href="route('departments.index')" :active="request()->routeIs('departments.*')">
@@ -114,6 +135,7 @@
             <x-responsive-nav-link :href="route('holidays.index')" :active="request()->routeIs('holidays.*')">
                 {{ __('Feriados') }}
             </x-responsive-nav-link>
+            @endif
         </div>
 
         <div class="pt-4 pb-1 border-t border-gray-200 bg-gray-50">

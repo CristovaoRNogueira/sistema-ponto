@@ -28,7 +28,16 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
-        return redirect()->intended(route('dashboard', absolute: false));
+        $user = Auth::user();
+
+        // LÓGICA DE REDIRECIONAMENTO
+        // Se for Admin, Operador ou RH -> Vai para o Dashboard
+        if ($user->isAdmin() || $user->isOperator()) {
+            return redirect()->intended(route('dashboard', absolute: false));
+        }
+
+        // Se for utilizador comum -> Vai para o Meu Ponto
+        return redirect()->intended(route('employee.timesheet', absolute: false));
     }
 
     /**

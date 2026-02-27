@@ -6,6 +6,7 @@
             </h2>
 
             <div class="flex space-x-2 print:hidden">
+                @if(Auth::user()->isAdmin() || Auth::user()->isOperator())
                 <button x-data="" x-on:click.prevent="$dispatch('open-modal', 'add-manual-punch')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md shadow text-sm font-medium transition flex items-center">
                     <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
@@ -19,6 +20,7 @@
                     </svg>
                     Atestado
                 </button>
+                @endif
 
                 <button onclick="window.print()" class="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-md shadow text-sm font-medium flex items-center transition">
                     <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -42,7 +44,7 @@
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
 
             <div class="bg-white p-4 shadow-sm sm:rounded-lg border border-gray-200 print:hidden">
-                <form method="GET" action="{{ route('admin.timesheet.report', $employee->id) }}" class="flex flex-col sm:flex-row items-end space-y-4 sm:space-y-0 sm:space-x-4">
+                <form method="GET" action="{{ (Auth::user()->isAdmin() || Auth::user()->isOperator()) ? route('admin.timesheet.report', $employee->id) : route('employee.timesheet') }}" class="flex flex-col sm:flex-row items-end space-y-4 sm:space-y-0 sm:space-x-4">
                     <div class="w-full sm:w-48">
                         <x-input-label for="month" value="Mês de Apuração" />
                         <select name="month" id="month" class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm">
@@ -94,7 +96,7 @@
             $totalTrabalhadoMin = 0;
 
             foreach($report as $day) {
-            if ($day['status'] === 'absence' || ($day['status'] === 'delay' && $day['worked_formatted'] === '00:00' && !$day['is_weekend'] && $day['status'] !== 'holiday' && $day['status'] !== 'justified')) {
+            if ($day['status'] === 'absence' || ($day['status'] === 'delay' && $day['worked_formatted'] === '00:00' && !$day['is_weekend'] && $day['status'] !== 'holiday' && $day['status'] !== 'justified' && $day['status'] !== 'vacation')) {
             $diasFaltaIntegral++;
             }
             $cargaMensalMin += $day['expected_minutes'] ?? 0;
@@ -275,7 +277,9 @@
                             <tr>
                                 <th class="px-4 py-2 text-gray-600">Período Abonado</th>
                                 <th class="px-4 py-2 text-gray-600">Motivo / CID</th>
+                                @if(Auth::user()->isAdmin() || Auth::user()->isOperator())
                                 <th class="px-4 py-2 text-center text-gray-600">Ação</th>
+                                @endif
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-200">
@@ -285,15 +289,17 @@
                                     {{ \Carbon\Carbon::parse($abs->start_date)->format('d/m/Y') }} até {{ \Carbon\Carbon::parse($abs->end_date)->format('d/m/Y') }}
                                 </td>
                                 <td class="px-4 py-3 text-gray-600">{{ $abs->reason }}</td>
+                                @if(Auth::user()->isAdmin() || Auth::user()->isOperator())
                                 <td class="px-4 py-3 text-center">
                                     <form method="POST" action="{{ route('absences.destroy', $abs->id) }}" onsubmit="return confirm('Tem certeza que deseja excluir este atestado? O sistema voltará a cobrar a carga horária e o saldo do servidor mudará instantaneamente.');">
                                         @csrf
                                         @method('DELETE')
                                         <button type="submit" class="bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1.5 rounded text-xs font-bold uppercase transition shadow-sm border border-red-200">
-                                            Excluir Atestado
+                                            Excluir
                                         </button>
                                     </form>
                                 </td>
+                                @endif
                             </tr>
                             @endforeach
                         </tbody>
@@ -313,7 +319,9 @@
                             <tr>
                                 <th class="px-4 py-2 text-gray-600">Data e Hora da Batida</th>
                                 <th class="px-4 py-2 text-gray-600">Justificativa</th>
+                                @if(Auth::user()->isAdmin() || Auth::user()->isOperator())
                                 <th class="px-4 py-2 text-center text-gray-600">Ação</th>
+                                @endif
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-200">
@@ -323,6 +331,7 @@
                                     {{ \Carbon\Carbon::parse($punch->punch_time)->format('d/m/Y \à\s H:i') }}
                                 </td>
                                 <td class="px-4 py-3 text-gray-600">{{ $punch->justification ?? 'Inserido manualmente pelo RH' }}</td>
+                                @if(Auth::user()->isAdmin() || Auth::user()->isOperator())
                                 <td class="px-4 py-3 text-center">
                                     <form method="POST" action="{{ route('punch-logs.destroy', $punch->id) }}" onsubmit="return confirm('Tem certeza que deseja excluir esta batida manual? As horas do dia serão recalculadas imediatamente.');">
                                         @csrf
@@ -332,6 +341,7 @@
                                         </button>
                                     </form>
                                 </td>
+                                @endif
                             </tr>
                             @endforeach
                         </tbody>
@@ -352,6 +362,7 @@
         </div>
     </div>
 
+    @if(Auth::user()->isAdmin() || Auth::user()->isOperator())
     <x-modal name="add-manual-punch" focusable>
         <form method="POST" action="{{ route('timesheet.manual-punch', $employee->id) }}" class="p-6">
             @csrf
@@ -407,6 +418,7 @@
             </div>
         </form>
     </x-modal>
+    @endif
 
     <style>
         @media print {
