@@ -6,6 +6,7 @@ use App\Models\Employee;
 use App\Models\Department;
 use App\Models\Absence;
 use Carbon\Carbon;
+use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
 use App\Services\TimeCalculationService;
@@ -46,10 +47,77 @@ class DashboardService
         return $query->orderBy('start_date', 'desc')->paginate(10, ['*'], 'absences_page');
     }
 
+    // NOVO: Função para gerar os dados do Calendário Operacional
+    public function getOperationalCalendarData($companyId, $month, $year, $departmentId = null)
+    {
+        $start = Carbon::createFromDate($year, $month, 1)->startOfMonth();
+        $end = $start->copy()->endOfMonth();
+
+        // Ajuste para o calendário começar sempre no Domingo
+        $startGrid = $start->copy()->startOfWeek(Carbon::SUNDAY);
+        $endGrid = $end->copy()->endOfWeek(Carbon::SATURDAY);
+
+        // Busca Feriados
+        $holidays = \App\Models\Holiday::where(function ($q) use ($companyId) {
+            $q->where('company_id', $companyId)->orWhereNull('company_id');
+        })
+            ->whereBetween('date', [$startGrid, $endGrid])
+            ->get()
+            ->keyBy(fn($item) => $item->date->format('Y-m-d'));
+
+        // Busca Exceções de Departamento (Se houver filtro)
+        $exceptions = collect();
+        if ($departmentId) {
+            $dept = Department::find($departmentId);
+            if ($dept) {
+                $deptIds = array_filter([$dept->id, $dept->parent_id]);
+                $exceptions = \App\Models\DepartmentShiftException::whereIn('department_id', $deptIds)
+                    ->whereBetween('exception_date', [$startGrid, $endGrid])
+                    ->orderBy('exception_date')
+                    ->get()
+                    ->keyBy(fn($item) => $item->exception_date->format('Y-m-d'));
+            }
+        }
+
+        $calendar = [];
+        $current = $startGrid->copy();
+
+        while ($current->lte($endGrid)) {
+            $dateStr = $current->format('Y-m-d');
+            $type = 'workday';
+            $label = '';
+
+            // Prioridade Visual: Recesso > Feriado > Fim de Semana > Dia Útil
+            if (isset($exceptions[$dateStr])) {
+                $exc = $exceptions[$dateStr];
+                $type = $exc->type === 'day_off' ? 'recess' : 'partial';
+                $label = $exc->type === 'day_off' ? 'Recesso' : 'Parcial';
+            } elseif (isset($holidays[$dateStr])) {
+                $type = 'holiday';
+                $label = $holidays[$dateStr]->name;
+            } elseif ($current->isWeekend()) {
+                $type = 'weekend';
+                $label = 'Fim de Semana';
+            }
+
+            $calendar[] = [
+                'date' => $current->copy(),
+                'day' => $current->day,
+                'in_month' => $current->month == $month,
+                'type' => $type,
+                'label' => $label
+            ];
+
+            $current->addDay();
+        }
+
+        return $calendar;
+    }
+
     public function getConsolidatedRankings($companyId, Carbon $startDate, Carbon $endDate, $departmentId = null, $filterDate = null)
     {
-        // Chave do cache atualizada para suportar o filtro de data exclusivo
-        $cacheKey = "dash_v13_{$companyId}_{$startDate->format('Ym')}_{$departmentId}_{$filterDate}";
+        // Chave v15: Nova chave de cache para incluir total_monthly_absences
+        $cacheKey = "dash_v15_{$companyId}_{$startDate->format('Ym')}_{$departmentId}_{$filterDate}";
 
         return Cache::remember($cacheKey, now()->addMinutes(5), function () use ($companyId, $startDate, $endDate, $departmentId, $filterDate) {
 
@@ -72,15 +140,13 @@ class DashboardService
             $delays = [];
             $absences = [];
             $bankHours = [];
-            $totalMonthlyAbsences = 0; // Guardião do total do mês para o card do topo!
+            $totalMonthlyAbsences = 0; // Guardião do total do mês!
 
             foreach ($employees as $emp) {
                 $qtdAtrasos = 0;
                 $diasFalta = 0;
-
                 $cargaMensalMin = 0;
                 $totalTrabalhadoMin = 0;
-
                 $ultimaFalta = null;
                 $ultimoAtraso = null;
                 $diasTrabalhados = 0;
@@ -104,7 +170,6 @@ class DashboardService
                         $diasTrabalhados++;
                     }
 
-                    // A Carga Mensal e Saldo são sempre calculados para o mês inteiro (ignora o filtro de data)
                     $cargaMensalMin += $expectedMin;
                     $totalTrabalhadoMin += $workedMin;
 
@@ -118,16 +183,12 @@ class DashboardService
                     if ($isFaltaIntegral) {
                         $diasFalta++;
                         $ultimaFalta = $date->format('d/m/Y');
-                        if ($filterDate && $dateString === $filterDate) {
-                            $faltouNoDiaFiltrado = true;
-                        }
+                        if ($filterDate && $dateString === $filterDate) $faltouNoDiaFiltrado = true;
                     } else {
                         if ($balanceMin < 0 && abs($balanceMin) > $tolerance && in_array($status, ['delay', 'incomplete', 'divergent'])) {
                             $qtdAtrasos++;
                             $ultimoAtraso = $date->format('d/m/Y');
-                            if ($filterDate && $dateString === $filterDate) {
-                                $atrasouNoDiaFiltrado = true;
-                            }
+                            if ($filterDate && $dateString === $filterDate) $atrasouNoDiaFiltrado = true;
                         }
                     }
                 }
@@ -137,7 +198,7 @@ class DashboardService
                 $formatSaldo = fn($min) => ($min < 0 ? '-' : '+') . sprintf('%02d:%02d', abs(intdiv($min, 60)), abs($min % 60));
 
                 if ($diasFalta >= 1) {
-                    $totalMonthlyAbsences++; // Soma para o painel principal, independentemente do filtro
+                    $totalMonthlyAbsences++;
                 }
 
                 if ($qtdAtrasos > 0) {
@@ -187,7 +248,7 @@ class DashboardService
                 'absences' => $absences,
                 'bankHours' => $bankHours,
                 'working_days' => $diasUteisMes,
-                'total_monthly_absences' => $totalMonthlyAbsences
+                'total_monthly_absences' => $totalMonthlyAbsences // <--- LINHA CRUCIAL ADICIONADA
             ];
         });
     }

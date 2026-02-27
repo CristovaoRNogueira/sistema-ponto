@@ -18,10 +18,12 @@
                 <form method="GET" action="{{ route('dashboard') }}" class="flex flex-col md:flex-row gap-4 items-end">
                     <div class="w-full md:w-1/3">
                         <x-input-label value="Secretaria / Lotação" />
-                        <select name="department_id" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:border-indigo-500">
+                        <select name="department_id" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:border-indigo-500 text-sm">
                             <option value="">Todas as Lotações</option>
-                            @foreach($secretariats as $sec)
-                            <option value="{{ $sec->id }}" {{ $departmentId == $sec->id ? 'selected' : '' }}>{{ $sec->name }}</option>
+                            @foreach($allDepartments as $dept)
+                            <option value="{{ $dept->id }}" {{ $departmentId == $dept->id ? 'selected' : '' }}>
+                                {{ $dept->parent ? $dept->parent->name . ' > ' : '' }}{{ $dept->name }}
+                            </option>
                             @endforeach
                         </select>
                     </div>
@@ -37,14 +39,26 @@
                         <x-input-label value="Ano" />
                         <input type="number" name="year" value="{{ $year }}" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm">
                     </div>
+
+                    @if(!empty($filterDate))
+                    <input type="hidden" name="filter_date" value="{{ $filterDate }}">
+                    @endif
+
                     <div class="flex space-x-3">
                         <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-md shadow text-sm font-medium transition">Filtrar</button>
+
+                        <button x-data="" x-on:click.prevent="$dispatch('open-modal', 'operational-calendar')" type="button" class="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-md shadow-sm text-sm font-medium transition flex items-center justify-center" title="Ver Calendário de Dias Úteis">
+                            <svg class="w-5 h-5 mr-1 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                            </svg>
+                            Calendário
+                        </button>
 
                         <button type="submit" formaction="{{ route('admin.export.monthly') }}" formtarget="_blank" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-md shadow text-sm font-medium transition flex items-center">
                             <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
                             </svg>
-                            Exportar Fechamento (CSV)
+                            Exportar CSV
                         </button>
                     </div>
                 </form>
@@ -56,7 +70,7 @@
                     <p class="text-2xl font-bold text-gray-800">{{ $totalEmployees ?? 0 }}</p>
                 </div>
                 <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100 border-l-4 border-red-500">
-                    <p class="text-sm text-gray-500 font-medium">Faltas Integrais</p>
+                    <p class="text-sm text-gray-500 font-medium">Faltas Integrais (Mês)</p>
                     <p class="text-2xl font-bold text-gray-800">{{ $rankings['total_monthly_absences'] ?? count($rankings['absences']) }}</p>
                 </div>
             </div>
@@ -112,6 +126,7 @@
                             <h3 class="font-bold text-orange-800 uppercase text-sm">Atrasos e Saídas</h3>
                             <span class="text-xs font-bold text-orange-600 bg-orange-100 px-2 py-1 rounded-full hidden sm:inline-block">{{ count($rankings['delays']) }} listados</span>
                         </div>
+
                         <form method="GET" action="{{ route('dashboard') }}" class="flex items-center space-x-2 text-xs m-0">
                             <input type="hidden" name="department_id" value="{{ $departmentId ?? '' }}">
                             <input type="hidden" name="month" value="{{ $month }}">
@@ -123,6 +138,7 @@
                             @endif
                         </form>
                     </div>
+
                     <div class="flex-1 overflow-y-auto">
                         <table class="w-full text-left text-sm">
                             <thead class="bg-white border-b">
@@ -164,7 +180,7 @@
                                 </tr>
                                 @empty
                                 <tr>
-                                    <td colspan="4" class="px-4 py-6 text-center text-gray-500">Nenhum atraso no período filtrado.</td>
+                                    <td colspan="4" class="px-4 py-6 text-center text-gray-500">Nenhum atraso crítico no período.</td>
                                 </tr>
                                 @endforelse
                             </tbody>
@@ -183,6 +199,7 @@
                             <h3 class="font-bold text-red-800 uppercase text-sm">Faltas Integrais</h3>
                             <span class="text-xs font-bold text-red-600 bg-red-100 px-2 py-1 rounded-full hidden sm:inline-block">{{ count($rankings['absences']) }} listados</span>
                         </div>
+
                         <form method="GET" action="{{ route('dashboard') }}" class="flex items-center space-x-2 text-xs m-0">
                             <input type="hidden" name="department_id" value="{{ $departmentId ?? '' }}">
                             <input type="hidden" name="month" value="{{ $month }}">
@@ -212,11 +229,15 @@
                                     </td>
                                     <td class="px-4 py-3 text-center">
                                         @if(isset($absence['never_clocked_in']) && $absence['never_clocked_in'])
-                                        <span class="px-2 py-1 bg-red-600 text-white font-black text-[10px] rounded uppercase shadow-sm tracking-wide">Nenhum Registro</span>
+                                        <span class="px-2 py-1 bg-red-600 text-white font-black text-[10px] rounded uppercase shadow-sm tracking-wide">
+                                            Nenhum Registro
+                                        </span>
                                         <div class="text-[10px] text-gray-500 mt-1">Ausente o mês todo</div>
                                         @else
                                         @if(empty($filterDate))
-                                        <span class="px-2 py-1 rounded-full text-xs font-bold {{ $absence['critical'] ? 'bg-red-200 text-red-800' : 'bg-yellow-100 text-yellow-800' }}">{{ $absence['days'] }} dias</span>
+                                        <span class="px-2 py-1 rounded-full text-xs font-bold {{ $absence['critical'] ? 'bg-red-200 text-red-800' : 'bg-yellow-100 text-yellow-800' }}">
+                                            {{ $absence['days'] }} dias
+                                        </span>
                                         <div class="text-[10px] text-gray-400 mt-1">Última: {{ $absence['last'] }}</div>
                                         @else
                                         <span class="font-bold text-red-600 uppercase text-xs">Sim</span>
@@ -230,7 +251,7 @@
                                 </tr>
                                 @empty
                                 <tr>
-                                    <td colspan="3" class="px-4 py-6 text-center text-gray-500">Nenhum servidor com ausências no período filtrado.</td>
+                                    <td colspan="3" class="px-4 py-6 text-center text-gray-500">Nenhum servidor com ausências registradas.</td>
                                 </tr>
                                 @endforelse
                             </tbody>
@@ -308,6 +329,78 @@
 
         </div>
     </div>
+
+    <x-modal name="operational-calendar" focusable>
+        <div class="p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-bold text-gray-900">Calendário Operacional - {{ $month }}/{{ $year }}</h2>
+                <button x-on:click="$dispatch('close')" class="text-gray-400 hover:text-gray-600">✕</button>
+            </div>
+
+            <div class="flex flex-wrap gap-3 mb-4 text-xs">
+                <div class="flex items-center"><span class="w-3 h-3 bg-white border border-gray-200 rounded mr-1"></span> Dia Útil</div>
+                <div class="flex items-center"><span class="w-3 h-3 bg-gray-100 border border-gray-200 rounded mr-1"></span> Fim de Semana</div>
+                <div class="flex items-center"><span class="w-3 h-3 bg-blue-100 border border-blue-200 rounded mr-1"></span> Feriado</div>
+                <div class="flex items-center"><span class="w-3 h-3 bg-red-100 border border-red-200 rounded mr-1"></span> Recesso Depto</div>
+                <div class="flex items-center"><span class="w-3 h-3 bg-orange-100 border border-orange-200 rounded mr-1"></span> Parcial</div>
+            </div>
+
+            <div class="border border-gray-200 rounded-lg overflow-hidden">
+                <div class="grid grid-cols-7 bg-gray-50 border-b border-gray-200 text-center text-xs font-bold text-gray-500 py-2">
+                    <div>DOM</div>
+                    <div>SEG</div>
+                    <div>TER</div>
+                    <div>QUA</div>
+                    <div>QUI</div>
+                    <div>SEX</div>
+                    <div>SÁB</div>
+                </div>
+                <div class="grid grid-cols-7 text-sm">
+                    @foreach($calendarData as $day)
+                    @php
+                    $bgClass = 'bg-white';
+                    $textClass = 'text-gray-700';
+                    $borderClass = 'border-gray-100'; // Default border
+
+                    if (!$day['in_month']) {
+                    $bgClass = 'bg-gray-50 text-gray-300';
+                    } else {
+                    if ($day['type'] === 'weekend') {
+                    $bgClass = 'bg-gray-100 text-gray-500';
+                    } elseif ($day['type'] === 'holiday') {
+                    $bgClass = 'bg-blue-100 text-blue-800';
+                    $borderClass = 'border-blue-200';
+                    } elseif ($day['type'] === 'recess') {
+                    $bgClass = 'bg-red-100 text-red-800';
+                    $borderClass = 'border-red-200';
+                    } elseif ($day['type'] === 'partial') {
+                    $bgClass = 'bg-orange-100 text-orange-800';
+                    $borderClass = 'border-orange-200';
+                    }
+                    }
+                    @endphp
+
+                    <div class="min-h-[80px] p-2 border-r border-b {{ $borderClass }} {{ $bgClass }} relative group">
+                        <span class="font-bold {{ !$day['in_month'] ? 'opacity-50' : '' }}">{{ $day['day'] }}</span>
+
+                        @if($day['label'] && $day['in_month'])
+                        <div class="mt-1 text-[10px] leading-tight font-medium break-words">
+                            {{ Str::limit($day['label'], 20) }}
+                        </div>
+                        <div class="absolute z-10 hidden group-hover:block bg-black text-white text-xs rounded p-1 bottom-1 left-1 right-1 text-center shadow-lg">
+                            {{ $day['label'] }}
+                        </div>
+                        @endif
+                    </div>
+                    @endforeach
+                </div>
+            </div>
+
+            <div class="mt-4 text-right">
+                <x-secondary-button x-on:click="$dispatch('close')">Fechar</x-secondary-button>
+            </div>
+        </div>
+    </x-modal>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>

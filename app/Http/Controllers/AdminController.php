@@ -30,31 +30,41 @@ class AdminController extends Controller
     {
         $companyId = Auth::user()->company_id;
 
-        // Captura os filtros de período e departamento
+        // 1. Captura os filtros de período e departamento
         $month = $request->input('month', Carbon::now()->month);
         $year = $request->input('year', Carbon::now()->year);
         $departmentId = $request->input('department_id');
-        $filterDate = $request->input('filter_date'); // <-- NOVO
+        $filterDate = $request->input('filter_date');
 
-        // ==== TRAVA DE SEGURANÇA ENTERPRISE ====
+        // 2. Trava de Segurança Enterprise (Gestor Setorial)
         if (!Auth::user()->isAdmin() && Auth::user()->isOperator()) {
             $departmentId = Auth::user()->department_id;
         }
 
+        // 3. Define Datas Limite (CRUCIAL: Definir antes de usar nos serviços)
         $startDate = Carbon::createFromDate($year, $month, 1)->startOfMonth();
         $endDate = $startDate->copy()->endOfMonth();
 
-        $secretariatsQuery = Department::where('company_id', $companyId)->whereNull('parent_id')->orderBy('name');
-        if (!Auth::user()->isAdmin() && Auth::user()->isOperator()) {
-            $secretariatsQuery->where('id', Auth::user()->department_id);
-        }
-        $secretariats = $secretariatsQuery->get();
+        // 4. Busca TODAS as Lotações (Pais e Filhas) para o filtro
+        $allDepartmentsQuery = Department::where('company_id', $companyId)
+            ->with('parent') // Carrega o pai para exibir a hierarquia "Secretaria > Setor"
+            ->orderBy('name');
 
+        if (!Auth::user()->isAdmin() && Auth::user()->isOperator()) {
+            $allDepartmentsQuery->where('id', Auth::user()->department_id);
+        }
+        $allDepartments = $allDepartmentsQuery->get();
+
+        // 5. Gera dados do Calendário Operacional
+        $calendarData = $this->dashboardService->getOperationalCalendarData($companyId, $month, $year, $departmentId);
+
+        // 6. Estatísticas e Gráficos
         $deptDistribution = $this->dashboardService->getEmployeesByDepartment($companyId, $departmentId);
         $chartLabels = $deptDistribution->map(fn($d) => $d->department->name ?? 'Sem Setor')->toArray();
         $chartData = $deptDistribution->map(fn($d) => $d->total)->toArray();
         $totalEmployees = array_sum($chartData);
 
+        // 7. Feed de Batidas Recentes
         $punches = PunchLog::with(['employee', 'device'])
             ->whereHas('employee', function ($q) use ($companyId, $departmentId) {
                 $q->where('company_id', $companyId);
@@ -64,15 +74,17 @@ class AdminController extends Controller
             ->take(8)
             ->get();
 
+        // 8. Rankings e Listas (Agora usando $startDate corretamente definida)
         $absences = $this->dashboardService->getActiveAbsences($companyId, $startDate, $endDate, $departmentId);
-        $rankings = $this->dashboardService->getConsolidatedRankings($companyId, $startDate, $endDate, $departmentId, $filterDate); // <-- NOVO PARÂMETRO
+        $rankings = $this->dashboardService->getConsolidatedRankings($companyId, $startDate, $endDate, $departmentId, $filterDate);
 
         return view('dashboard', compact(
             'month',
             'year',
             'departmentId',
-            'filterDate', // <-- NOVA VARIÁVEL
-            'secretariats',
+            'filterDate',
+            'allDepartments', // Variável nova com todos os departamentos
+            'calendarData',   // Dados do calendário
             'totalEmployees',
             'chartLabels',
             'chartData',
@@ -151,7 +163,6 @@ class AdminController extends Controller
         return redirect()->back()->with('success', 'Atestado/Justificativa registrado.');
     }
 
-    // FUNÇÃO ÚNICA PARA APAGAR ATESTADOS
     public function destroyAbsence(Absence $absence)
     {
         if ($absence->employee->company_id !== Auth::user()->company_id) {
@@ -164,7 +175,6 @@ class AdminController extends Controller
         return redirect()->back()->with('success', 'Atestado/Ausência removido com sucesso! O espelho e o saldo mensal foram recalculados.');
     }
 
-    // Excluir Batida Manual
     public function destroyPunchLog(PunchLog $punchLog)
     {
         if ($punchLog->employee->company_id !== Auth::user()->company_id) {
@@ -177,7 +187,6 @@ class AdminController extends Controller
         return redirect()->back()->with('success', 'Batida manual excluída com sucesso! O espelho foi recalculado.');
     }
 
-    // Excluir Exceção / Recesso do Departamento
     public function destroyDepartmentException(DepartmentShiftException $exception)
     {
         if ($exception->department->company_id !== Auth::user()->company_id) {
@@ -242,8 +251,6 @@ class AdminController extends Controller
         return redirect()->back()->with('success', 'Exceção / Recesso aplicado ao departamento com sucesso!');
     }
 
-    // --- ESPELHO DE PONTO (Timesheet) ---
-
     public function reportTimesheet(Request $request, Employee $employee, TimeCalculationService $calcService)
     {
         if ($employee->company_id !== Auth::user()->company_id) {
@@ -269,7 +276,6 @@ class AdminController extends Controller
                     });
             })->orderBy('start_date', 'desc')->get();
 
-            // Busca as batidas inseridas manualmente neste mês
         $manualPunches = PunchLog::where('employee_id', $employee->id)
             ->whereBetween('punch_time', [$startDate->copy()->startOfDay(), $endDate->copy()->endOfDay()])
             ->where('is_manual', true)
@@ -317,8 +323,6 @@ class AdminController extends Controller
     {
         return sprintf('%02d:%02d', floor($totalMinutes / 60), $totalMinutes % 60);
     }
-
-    // --- GERAÇÃO DO FECHAMENTO MENSAL EM LOTE (EXCEL/CSV) ---
 
     public function exportMonthlyClosing(Request $request, TimeCalculationService $calcService)
     {
