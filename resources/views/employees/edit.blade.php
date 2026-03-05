@@ -11,15 +11,15 @@
     <div class="py-12">
         <div class="max-w-4xl mx-auto sm:px-6 lg:px-8">
             <div class="bg-white shadow-sm sm:rounded-lg overflow-hidden border border-gray-200" x-data="{ tab: 'gerais' }">
-                
+
                 <div class="flex border-b border-gray-200 bg-gray-50">
-                    <button @click="tab = 'gerais'" :class="{ 'border-b-2 border-indigo-500 text-indigo-600 bg-white': tab === 'gerais', 'text-gray-500 hover:text-gray-700': tab !== 'gerais' }" class="px-6 py-4 text-sm font-medium focus:outline-none transition-colors">
+                    <button type="button" @click="tab = 'gerais'" :class="{ 'border-b-2 border-indigo-500 text-indigo-600 bg-white': tab === 'gerais', 'text-gray-500 hover:text-gray-700': tab !== 'gerais' }" class="px-6 py-4 text-sm font-medium focus:outline-none transition-colors">
                         Informações Gerais
                     </button>
-                    <button @click="tab = 'pessoais'" :class="{ 'border-b-2 border-indigo-500 text-indigo-600 bg-white': tab === 'pessoais', 'text-gray-500 hover:text-gray-700': tab !== 'pessoais' }" class="px-6 py-4 text-sm font-medium focus:outline-none transition-colors">
+                    <button type="button" @click="tab = 'pessoais'" :class="{ 'border-b-2 border-indigo-500 text-indigo-600 bg-white': tab === 'pessoais', 'text-gray-500 hover:text-gray-700': tab !== 'pessoais' }" class="px-6 py-4 text-sm font-medium focus:outline-none transition-colors">
                         Dados Pessoais
                     </button>
-                    <button @click="tab = 'acesso'" :class="{ 'border-b-2 border-indigo-500 text-indigo-600 bg-white': tab === 'acesso', 'text-gray-500 hover:text-gray-700': tab !== 'acesso' }" class="px-6 py-4 text-sm font-medium focus:outline-none transition-colors">
+                    <button type="button" @click="tab = 'acesso'" :class="{ 'border-b-2 border-indigo-500 text-indigo-600 bg-white': tab === 'acesso', 'text-gray-500 hover:text-gray-700': tab !== 'acesso' }" class="px-6 py-4 text-sm font-medium focus:outline-none transition-colors">
                         Integração & App
                     </button>
                 </div>
@@ -28,7 +28,7 @@
                     <form action="{{ route('employees.update', $employee->id) }}" method="POST">
                         @csrf
                         @method('PUT')
-                        
+
                         <div x-show="tab === 'gerais'" x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" class="space-y-6">
                             <div>
                                 <x-input-label for="name" value="Nome Completo *" />
@@ -41,16 +41,16 @@
                                     <select id="department_id" name="department_id" class="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm mt-1 block w-full">
                                         <option value="">Selecione...</option>
                                         @foreach($secretariats as $sec)
-                                            <optgroup label="{{ $sec->name }}">
-                                                <option value="{{ $sec->id }}" {{ $employee->department_id == $sec->id ? 'selected' : '' }}>
-                                                    {{ $sec->name }} (Direto na Secretaria)
-                                                </option>
-                                                @foreach($sec->children as $child)
-                                                    <option value="{{ $child->id }}" {{ $employee->department_id == $child->id ? 'selected' : '' }}>
-                                                        ↳ {{ $child->name }}
-                                                    </option>
-                                                @endforeach
-                                            </optgroup>
+                                        <optgroup label="{{ $sec->name }}">
+                                            <option value="{{ $sec->id }}" {{ $employee->department_id == $sec->id ? 'selected' : '' }}>
+                                                {{ $sec->name }} (Direto na Secretaria)
+                                            </option>
+                                            @foreach($sec->children as $child)
+                                            <option value="{{ $child->id }}" {{ $employee->department_id == $child->id ? 'selected' : '' }}>
+                                                ↳ {{ $child->name }}
+                                            </option>
+                                            @endforeach
+                                        </optgroup>
                                         @endforeach
                                     </select>
                                 </div>
@@ -59,9 +59,9 @@
                                     <select id="job_title_id" name="job_title_id" class="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm mt-1 block w-full">
                                         <option value="">Selecione...</option>
                                         @foreach($jobTitles as $job)
-                                            <option value="{{ $job->id }}" {{ $employee->job_title_id == $job->id ? 'selected' : '' }}>
-                                                {{ $job->name }}
-                                            </option>
+                                        <option value="{{ $job->id }}" {{ $employee->job_title_id == $job->id ? 'selected' : '' }}>
+                                            {{ $job->name }}
+                                        </option>
                                         @endforeach
                                     </select>
                                 </div>
@@ -73,20 +73,30 @@
                                     <select id="shift_id" name="shift_id" class="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm mt-1 block w-full">
                                         <option value="">Selecione...</option>
                                         @foreach($shifts as $shift)
-                                            <option value="{{ $shift->id }}" {{ $employee->shift_id == $shift->id ? 'selected' : '' }}>
-                                                {{ $shift->name }}
-                                            </option>
+                                        <option value="{{ $shift->id }}" {{ $employee->shift_id == $shift->id ? 'selected' : '' }}>
+                                            {{ $shift->name }}
+                                        </option>
                                         @endforeach
                                     </select>
                                 </div>
+
+                                <div>
+                                    <x-input-label for="scale_start_date" value="Data Base da Escala (Apenas para 12x36)" />
+                                    <x-text-input id="scale_start_date" name="scale_start_date" type="date" class="mt-1 block w-full border-orange-300 focus:border-orange-500 focus:ring-orange-500"
+                                        :value="old('scale_start_date', $employee->scale_start_date ? $employee->scale_start_date->format('Y-m-d') : '')" />
+                                    <p class="text-[11px] text-gray-500 mt-1 leading-tight">Se a jornada for 12x36, selecione um dia em que o servidor <b>trabalhou</b>. O sistema calculará as folgas a partir desta data.</p>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div>
                                     <x-input-label for="cost_center_id" value="Centro de Custo" />
                                     <select id="cost_center_id" name="cost_center_id" class="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm mt-1 block w-full">
                                         <option value="">Selecione...</option>
                                         @foreach($costCenters as $costCenter)
-                                            <option value="{{ $costCenter->id }}" {{ $employee->cost_center_id == $costCenter->id ? 'selected' : '' }}>
-                                                {{ $costCenter->name }}
-                                            </option>
+                                        <option value="{{ $costCenter->id }}" {{ $employee->cost_center_id == $costCenter->id ? 'selected' : '' }}>
+                                            {{ $costCenter->name }}
+                                        </option>
                                         @endforeach
                                     </select>
                                 </div>
@@ -115,21 +125,21 @@
                         </div>
 
                         <div x-show="tab === 'acesso'" x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" class="space-y-6" style="display: none;">
-                            
+
                             <div class="p-4 bg-indigo-50 rounded-lg border border-indigo-100">
                                 <x-input-label for="device_id" value="Sincronizar Atualização com Relógio (Push)" class="text-indigo-800 font-bold" />
                                 <p class="text-xs text-indigo-600 mb-2">Selecione um relógio para enviar os dados atualizados agora mesmo.</p>
                                 <select id="device_id" name="device_id" class="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm mt-1 block w-full">
                                     <option value="">Não sincronizar agora</option>
                                     @foreach($devices as $dev)
-                                        <option value="{{ $dev->id }}">{{ $dev->name }}</option>
+                                    <option value="{{ $dev->id }}">{{ $dev->name }}</option>
                                     @endforeach
                                 </select>
                             </div>
 
                             <div class="border-t border-gray-200 pt-6">
                                 <h4 class="text-md font-medium text-gray-800 mb-4">Acesso Aplicativo Mobile</h4>
-                                
+
                                 <div class="block mb-4">
                                     <label for="mobile_access" class="inline-flex items-center">
                                         <input id="mobile_access" type="checkbox" class="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500" name="mobile_access" value="1" {{ $employee->mobile_access ? 'checked' : '' }}>

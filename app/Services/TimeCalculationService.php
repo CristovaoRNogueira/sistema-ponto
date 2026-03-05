@@ -17,13 +17,38 @@ class TimeCalculationService
         $dateObj = Carbon::parse($date);
         $isWeekend = $dateObj->isWeekend();
 
-        $punches = $employee->punchLogs()
-            ->whereDate('punch_time', $dateObj->format('Y-m-d'))
-            ->orderBy('punch_time', 'asc')
-            ->get();
+        // 1. Identificar a Jornada Base para saber se é Plantão Noturno
+        $empShift = $employee->shift;
+        $deptShift = $employee->department?->shift ?? $employee->department?->parent?->shift;
+        $baseShift = $empShift ?? $deptShift;
 
+        // ==========================================
+        // JANELA DE BUSCA INTELIGENTE (VIRADA DE NOITE)
+        // ==========================================
+        $isNightShift = false;
+        if ($baseShift && !empty($baseShift->in_1) && !empty($baseShift->out_1)) {
+            $inTime = Carbon::parse($baseShift->in_1);
+            $outTime = Carbon::parse($baseShift->out_1);
+
+            // Se a saída (08:00) for menor que a entrada (20:00), vira a noite.
+            if ($outTime->lt($inTime)) {
+                $isNightShift = true;
+            }
+        }
+
+        $startTime = $dateObj->copy()->startOfDay(); // Padrão: 00:00:00
+        $endTime = $dateObj->copy()->endOfDay();     // Padrão: 23:59:59
+
+        if ($isNightShift) {
+            // Se for plantão noturno, o "Dia Lógico" começa ao meio-dia 
+            // do dia do plantão e vai até o meio-dia do dia seguinte (cobrinha a saída das 08:00)
+            $startTime = $dateObj->copy()->setHour(12)->setMinute(0)->setSecond(0);
+            $endTime = $dateObj->copy()->addDay()->setHour(11)->setMinute(59)->setSecond(59);
+        }
+
+        // Busca as batidas apenas dentro da janela lógica
         $punches = $employee->punchLogs()
-            ->whereDate('punch_time', $dateObj->format('Y-m-d'))
+            ->whereBetween('punch_time', [$startTime, $endTime])
             ->orderBy('punch_time', 'asc')
             ->get();
 
@@ -37,7 +62,6 @@ class TimeCalculationService
 
         if ($vacation) {
             $punchTimes = $punches->map(fn($p) => Carbon::parse($p->punch_time)->format('H:i'))->toArray();
-            // Retorna 'justified' para manter a cor azul do layout, mas escreve "Férias"
             return $this->buildResult($dateObj, $punchTimes, 0, 0, 0, 'vacation', '', $isWeekend);
         }
 
@@ -56,7 +80,7 @@ class TimeCalculationService
         }
 
         // ==========================================
-        // BUSCA DAS FONTES DE JORNADA (DB)
+        // BUSCA DAS EXCEÇÕES E FERIADOS (DB)
         // ==========================================
         $empException = ShiftException::where('employee_id', $employee->id)->whereDate('exception_date', $date)->first();
 
@@ -70,12 +94,27 @@ class TimeCalculationService
             $query->where('company_id', $employee->company_id)->orWhereNull('company_id');
         })->whereDate('date', $date)->first();
 
-        $empShift = $employee->shift;
-        $deptShift = $employee->department?->shift ?? $employee->department?->parent?->shift;
-
-        // A tolerância vem da jornada base do funcionário, mesmo em dias de exceção
-        $baseShift = $empShift ?? $deptShift;
         $tolerance = $baseShift ? $baseShift->tolerance_minutes : 0;
+
+        // ==========================================
+        // LÓGICA DE ESCALA 12x36 (MOTOR INTELIGENTE CORRIGIDO)
+        // ==========================================
+        $is12x36 = $baseShift && $baseShift->is_12x36;
+        $isWorkDay12x36 = false;
+
+        if ($is12x36 && $employee->scale_start_date) {
+            // Zera as horas para garantir que o diffInDays conte os dias absolutos do calendário
+            $startDateObj = Carbon::parse($employee->scale_start_date)->startOfDay();
+            $currentDateObj = Carbon::parse($dateObj->format('Y-m-d'))->startOfDay();
+
+            // diffInDays retorna o número inteiro de dias entre as duas datas
+            $diffInDays = $currentDateObj->diffInDays($startDateObj);
+
+            // Se a diferença de dias for par (0, 2, 4...), é dia de plantão. Ímpar (1, 3, 5...) é folga.
+            if (abs($diffInDays) % 2 == 0) {
+                $isWorkDay12x36 = true;
+            }
+        }
 
         $expectedMinutes = 0;
         $observation = '';
@@ -87,7 +126,6 @@ class TimeCalculationService
         // HIERARQUIA RESTRITA DE REGRAS DE NEGÓCIO
         // ==========================================
         if ($empException) {
-            // 1. EXCEÇÃO DO SERVIDOR (Plantão, Troca)
             $effectiveShiftForLunch = $empException;
             if ($empException->type === 'day_off') {
                 $expectedMinutes = 0;
@@ -99,7 +137,6 @@ class TimeCalculationService
                 $shiftIn1 = $empException->in_1;
             }
         } elseif ($deptException) {
-            // 2. EXCEÇÃO DO DEPARTAMENTO (Recesso Parcial / Total)
             $effectiveShiftForLunch = $deptException;
             if ($deptException->type === 'day_off') {
                 $expectedMinutes = 0;
@@ -110,26 +147,37 @@ class TimeCalculationService
                 $expectedPunchesCount = (!empty($deptException->in_2) && !empty($deptException->out_2)) ? 4 : 2;
                 $shiftIn1 = $deptException->in_1;
             }
+        } elseif ($is12x36) {
+            // REGRA 12x36 (SOBREPÕE Feriados e Finais de Semana)
+            if (!$employee->scale_start_date) {
+                $expectedMinutes = 0;
+                $observation = 'Erro: 12x36 sem Data Base configurada';
+            } elseif ($isWorkDay12x36) {
+                $effectiveShiftForLunch = $baseShift;
+                $expectedMinutes = $baseShift->daily_work_minutes > 0 ? $baseShift->daily_work_minutes : 720;
+                $observation = 'Plantão 12x36';
+                $expectedPunchesCount = (!empty($baseShift->in_2) && !empty($baseShift->out_2)) ? 4 : 2;
+                $shiftIn1 = $baseShift->in_1 ?? '07:00';
+            } else {
+                $expectedMinutes = 0;
+                $observation = 'Folga Escala 12x36';
+            }
         } elseif ($holiday) {
-            // 3. FERIADO
             $expectedMinutes = 0;
             $observation = 'Feriado: ' . $holiday->name;
         } elseif ($empShift && !$isWeekend) {
-            // 4. JORNADA ESPECÍFICA DO SERVIDOR
             $effectiveShiftForLunch = $empShift;
             $expectedMinutes = $empShift->daily_work_minutes;
-            $observation = ''; // <-- CORRIGIDO: Limpo para não confundir no Espelho
+            $observation = '';
             $expectedPunchesCount = (!empty($empShift->in_2) && !empty($empShift->out_2)) ? 4 : 2;
             $shiftIn1 = $empShift->in_1;
         } elseif ($deptShift && !$isWeekend) {
-            // 5. JORNADA DO DEPARTAMENTO
             $effectiveShiftForLunch = $deptShift;
             $expectedMinutes = $deptShift->daily_work_minutes;
-            $observation = ''; // <-- CORRIGIDO: Limpo para não confundir no Espelho
+            $observation = '';
             $expectedPunchesCount = (!empty($deptShift->in_2) && !empty($deptShift->out_2)) ? 4 : 2;
             $shiftIn1 = $deptShift->in_1;
         } elseif ($isWeekend) {
-            // 6. FINAL DE SEMANA
             $expectedMinutes = 0;
             $observation = 'Final de Semana';
         } else {
@@ -144,11 +192,11 @@ class TimeCalculationService
         $punchTimes = [];
         foreach ($punches as $p) {
             $po = Carbon::parse($p->punch_time);
-            $punchTimes[] = $po->format('H:i');
-            $calcPunchObjects[] = clone $po;
+            $punchTimes[] = $po->format('H:i'); // Extrai só a hora para exibir no espelho
+            $calcPunchObjects[] = clone $po;    // Guarda o objeto de data completo para o cálculo correto!
         }
 
-        // Tolerância para corte de chegada adiantada (evita hora extra indevida)
+        // Tolerância de Chegada
         if (count($calcPunchObjects) > 0 && !empty($shiftIn1) && $tolerance > 0) {
             $expectedIn1 = Carbon::parse($dateObj->format('Y-m-d') . ' ' . $shiftIn1);
             $firstPunch = $calcPunchObjects[0];
@@ -162,10 +210,12 @@ class TimeCalculationService
         $numPunches = count($calcPunchObjects);
 
         for ($i = 0; $i < $numPunches - 1; $i += 2) {
+            // O cálculo acontece aqui: como guardamos os objetos originais, 
+            // a batida do dia seguinte (08:00) entende que se passaram 12h desde as 20:00!
             $workedMinutes += $calcPunchObjects[$i]->diffInMinutes($calcPunchObjects[$i + 1]);
         }
 
-        // Desconto Inteligente de Almoço
+        // Desconto de Almoço (se houver)
         if ($expectedPunchesCount == 4 && $numPunches == 2 && $effectiveShiftForLunch && !empty($effectiveShiftForLunch->out_1) && !empty($effectiveShiftForLunch->in_2)) {
             $out1Obj = Carbon::parse($dateObj->format('Y-m-d') . ' ' . $effectiveShiftForLunch->out_1);
             $in2Obj = Carbon::parse($dateObj->format('Y-m-d') . ' ' . $effectiveShiftForLunch->in_2);
@@ -183,7 +233,7 @@ class TimeCalculationService
 
         if ($expectedMinutes > 0 && $numPunches == 0) {
             $status = 'absence';
-        } elseif (($holiday || ($deptException && $deptException->type === 'day_off')) && $numPunches == 0) {
+        } elseif (($holiday || ($deptException && $deptException->type === 'day_off')) && $numPunches == 0 && !$is12x36) {
             $status = 'holiday';
             $balanceMinutes = 0;
         } elseif ($expectedMinutes == 0 && $numPunches == 0) {

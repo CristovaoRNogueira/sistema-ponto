@@ -5,28 +5,35 @@
                 Espelho de Ponto: {{ $employee->name }}
             </h2>
 
-            <div class="flex space-x-2 print:hidden">
+            <div class="flex flex-wrap gap-2 print:hidden">
                 @if(Auth::user()->isAdmin() || Auth::user()->isOperator())
-                <button x-data="" x-on:click.prevent="$dispatch('open-modal', 'add-manual-punch')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md shadow text-sm font-medium transition flex items-center">
+                <button x-data="" x-on:click.prevent="$dispatch('open-modal', 'add-manual-punch')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-md shadow text-xs font-bold uppercase tracking-wider transition flex items-center">
                     <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
                     </svg>
                     Batida Manual
                 </button>
 
-                <button x-data="" x-on:click.prevent="$dispatch('open-modal', 'add-absence')" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md shadow text-sm font-medium transition flex items-center">
+                <button x-data="" x-on:click.prevent="$dispatch('open-modal', 'add-absence')" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-md shadow text-xs font-bold uppercase tracking-wider transition flex items-center">
                     <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                     </svg>
                     Atestado
                 </button>
+
+                <button x-data="" x-on:click.prevent="$dispatch('open-modal', 'add-shift-exception')" class="bg-orange-500 hover:bg-orange-600 text-white px-3 py-2 rounded-md shadow text-xs font-bold uppercase tracking-wider transition flex items-center">
+                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>
+                    </svg>
+                    Troca / Escala
+                </button>
                 @endif
 
-                <button onclick="window.print()" class="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-md shadow text-sm font-medium flex items-center transition">
+                <button onclick="window.print()" class="bg-gray-800 hover:bg-gray-700 text-white px-3 py-2 rounded-md shadow text-xs font-bold uppercase tracking-wider flex items-center transition">
                     <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
                     </svg>
-                    Imprimir / PDF
+                    Imprimir
                 </button>
             </div>
         </div>
@@ -266,6 +273,66 @@
                 </div>
             </div>
 
+            @if(isset($shiftExceptions) && $shiftExceptions->count() > 0)
+            <div class="mt-8 bg-white shadow-sm sm:rounded-lg border border-gray-200 overflow-hidden print:hidden">
+                <div class="bg-orange-50 px-4 py-3 border-b border-orange-100 flex justify-between items-center">
+                    <h3 class="font-bold text-orange-800 uppercase text-sm">Trocas de Plantão / Exceções (Neste Mês)</h3>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full text-left text-sm whitespace-nowrap">
+                        <thead class="bg-gray-50 border-b">
+                            <tr>
+                                <th class="px-4 py-2 text-gray-600">Data Modificada</th>
+                                <th class="px-4 py-2 text-gray-600">Tipo</th>
+                                <th class="px-4 py-2 text-gray-600">Horários Configurados</th>
+                                <th class="px-4 py-2 text-gray-600">Observação</th>
+                                @if(Auth::user()->isAdmin() || Auth::user()->isOperator())
+                                <th class="px-4 py-2 text-center text-gray-600">Ação</th>
+                                @endif
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200">
+                            @foreach($shiftExceptions as $exc)
+                            <tr class="hover:bg-gray-50 transition">
+                                <td class="px-4 py-3 font-medium text-gray-900 font-mono">
+                                    {{ \Carbon\Carbon::parse($exc->exception_date)->format('d/m/Y') }}
+                                </td>
+                                <td class="px-4 py-3 text-gray-600 font-bold">
+                                    @if($exc->type === 'day_off')
+                                    <span class="text-red-600">Folga Extra / Zerar</span>
+                                    @elseif($exc->type === 'swap')
+                                    <span class="text-blue-600">Troca (Novo Horário)</span>
+                                    @else
+                                    <span class="text-orange-600">Convocação Extra</span>
+                                    @endif
+                                </td>
+                                <td class="px-4 py-3 text-gray-600 font-mono text-xs">
+                                    @if($exc->type === 'day_off')
+                                    --:--
+                                    @else
+                                    {{ $exc->in_1 ?? '--' }} / {{ $exc->out_1 ?? '--' }}
+                                    @if($exc->in_2) <br> {{ $exc->in_2 }} / {{ $exc->out_2 }} @endif
+                                    @endif
+                                </td>
+                                <td class="px-4 py-3 text-gray-600">{{ $exc->observation ?? '-' }}</td>
+
+                                @if(Auth::user()->isAdmin() || Auth::user()->isOperator())
+                                <td class="px-4 py-3 text-center">
+                                    <form method="POST" action="{{ route('admin.shift_exceptions.destroy', $exc->id) }}" onsubmit="return confirm('Tem certeza que deseja remover esta exceção? A jornada original será restaurada para este dia.');">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button type="submit" class="bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1.5 rounded text-xs font-bold uppercase transition shadow-sm border border-red-200">Excluir</button>
+                                    </form>
+                                </td>
+                                @endif
+                            </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            @endif
+
             @if(isset($absences) && $absences->count() > 0)
             <div class="mt-8 bg-white shadow-sm sm:rounded-lg border border-gray-200 overflow-hidden print:hidden">
                 <div class="bg-purple-50 px-4 py-3 border-b border-purple-100 flex justify-between items-center">
@@ -291,12 +358,10 @@
                                 <td class="px-4 py-3 text-gray-600">{{ $abs->reason }}</td>
                                 @if(Auth::user()->isAdmin() || Auth::user()->isOperator())
                                 <td class="px-4 py-3 text-center">
-                                    <form method="POST" action="{{ route('absences.destroy', $abs->id) }}" onsubmit="return confirm('Tem certeza que deseja excluir este atestado? O sistema voltará a cobrar a carga horária e o saldo do servidor mudará instantaneamente.');">
+                                    <form method="POST" action="{{ route('absences.destroy', $abs->id) }}" onsubmit="return confirm('Tem certeza que deseja excluir este atestado?');">
                                         @csrf
                                         @method('DELETE')
-                                        <button type="submit" class="bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1.5 rounded text-xs font-bold uppercase transition shadow-sm border border-red-200">
-                                            Excluir
-                                        </button>
+                                        <button type="submit" class="bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1.5 rounded text-xs font-bold uppercase transition shadow-sm border border-red-200">Excluir</button>
                                     </form>
                                 </td>
                                 @endif
@@ -333,12 +398,10 @@
                                 <td class="px-4 py-3 text-gray-600">{{ $punch->justification ?? 'Inserido manualmente pelo RH' }}</td>
                                 @if(Auth::user()->isAdmin() || Auth::user()->isOperator())
                                 <td class="px-4 py-3 text-center">
-                                    <form method="POST" action="{{ route('punch-logs.destroy', $punch->id) }}" onsubmit="return confirm('Tem certeza que deseja excluir esta batida manual? As horas do dia serão recalculadas imediatamente.');">
+                                    <form method="POST" action="{{ route('punch-logs.destroy', $punch->id) }}" onsubmit="return confirm('Tem certeza que deseja excluir esta batida?');">
                                         @csrf
                                         @method('DELETE')
-                                        <button type="submit" class="bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1.5 rounded text-xs font-bold uppercase transition shadow-sm border border-red-200">
-                                            Excluir
-                                        </button>
+                                        <button type="submit" class="bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1.5 rounded text-xs font-bold uppercase transition shadow-sm border border-red-200">Excluir</button>
                                     </form>
                                 </td>
                                 @endif
@@ -367,9 +430,6 @@
         <form method="POST" action="{{ route('timesheet.manual-punch', $employee->id) }}" class="p-6">
             @csrf
             <h2 class="text-lg font-bold text-gray-900 mb-2">Inserir Batida Manual</h2>
-            <p class="text-xs text-gray-600 mb-6 bg-yellow-50 border-l-4 border-yellow-400 p-2">
-                <strong>Atenção:</strong> As batidas originais não podem ser apagadas. Esta inclusão será marcada no sistema para auditoria.
-            </p>
             <div class="grid grid-cols-2 gap-4">
                 <div>
                     <x-input-label for="punch_date" value="Data da Batida" />
@@ -382,7 +442,7 @@
             </div>
             <div class="mt-4">
                 <x-input-label for="justification" value="Justificativa (Motivo)" />
-                <x-text-input id="justification" name="justification" type="text" class="mt-1 block w-full" placeholder="Ex: Esqueceu de bater, Trabalho externo..." required />
+                <x-text-input id="justification" name="justification" type="text" class="mt-1 block w-full" placeholder="Ex: Esqueceu, Trabalho Externo..." required />
             </div>
             <div class="mt-6 flex justify-end space-x-3">
                 <x-secondary-button x-on:click="$dispatch('close')">Cancelar</x-secondary-button>
@@ -394,10 +454,7 @@
     <x-modal name="add-absence" focusable>
         <form method="POST" action="{{ route('timesheet.absence', $employee->id) }}" class="p-6">
             @csrf
-            <h2 class="text-lg font-bold text-gray-900 mb-2">Registrar Atestado ou Licença</h2>
-            <p class="text-xs text-gray-600 mb-6 bg-blue-50 border-l-4 border-blue-400 p-2">
-                Os dias cadastrados aqui terão a carga horária abonada automaticamente.
-            </p>
+            <h2 class="text-lg font-bold text-gray-900 mb-2">Registrar Atestado/Licença</h2>
             <div class="grid grid-cols-2 gap-4">
                 <div>
                     <x-input-label for="start_date" value="Data Inicial" />
@@ -414,7 +471,61 @@
             </div>
             <div class="mt-6 flex justify-end space-x-3">
                 <x-secondary-button x-on:click="$dispatch('close')">Cancelar</x-secondary-button>
-                <x-primary-button class="bg-purple-600 hover:bg-purple-700">Registrar Atestado</x-primary-button>
+                <x-primary-button class="bg-purple-600 hover:bg-purple-700">Salvar</x-primary-button>
+            </div>
+        </form>
+    </x-modal>
+
+    <x-modal name="add-shift-exception" focusable>
+        <form method="POST" action="{{ route('admin.shift_exceptions.store') }}" class="p-6" x-data="{ type: 'swap' }">
+            @csrf
+            <input type="hidden" name="employee_id" value="{{ $employee->id }}">
+
+            <h2 class="text-lg font-bold text-gray-900 mb-2">Troca de Plantão / Exceção</h2>
+            <p class="text-xs text-gray-500 mb-4">Use para escalas 12x36 (trocar folga por dia trabalhado) ou convocações extras.</p>
+
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                    <x-input-label for="exception_date" value="Data da Ocorrência" />
+                    <x-text-input id="exception_date" name="exception_date" type="date" class="mt-1 block w-full" required />
+                </div>
+                <div>
+                    <x-input-label for="type" value="Tipo de Exceção" />
+                    <select name="type" id="type" x-model="type" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:border-indigo-500" required>
+                        <option value="swap">Troca de Dia (Novo Horário)</option>
+                        <option value="day_off">Folga Extra (Zerar Dia)</option>
+                        <option value="extra">Convocação Extra</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-4 gap-2 mb-4" x-show="type !== 'day_off'" x-transition>
+                <div>
+                    <x-input-label for="in_1" value="Ent 1" />
+                    <x-text-input id="in_1" name="in_1" type="time" class="mt-1 block w-full" />
+                </div>
+                <div>
+                    <x-input-label for="out_1" value="Sai 1" />
+                    <x-text-input id="out_1" name="out_1" type="time" class="mt-1 block w-full" />
+                </div>
+                <div>
+                    <x-input-label for="in_2" value="Ent 2" />
+                    <x-text-input id="in_2" name="in_2" type="time" class="mt-1 block w-full" />
+                </div>
+                <div>
+                    <x-input-label for="out_2" value="Sai 2" />
+                    <x-text-input id="out_2" name="out_2" type="time" class="mt-1 block w-full" />
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <x-input-label for="observation" value="Observação / Motivo" />
+                <x-text-input id="observation" name="observation" type="text" class="mt-1 block w-full" placeholder="Ex: Troca com Fulano, Plantão Extra..." />
+            </div>
+
+            <div class="mt-6 flex justify-end space-x-3">
+                <x-secondary-button x-on:click="$dispatch('close')">Cancelar</x-secondary-button>
+                <x-primary-button class="bg-orange-600 hover:bg-orange-700">Salvar Troca</x-primary-button>
             </div>
         </form>
     </x-modal>

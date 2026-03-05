@@ -99,8 +99,10 @@ class EmployeeController extends Controller
             'name' => 'required|string|max:255',
             'cpf' => 'nullable|string|max:14|unique:employees,cpf', // Verifica se o CPF já existe
             'pis' => 'required|string|max:20|unique:employees,pis', // Verifica se o PIS já existe
-            'device_id' => 'required|exists:devices,id'], 
-            [ 'cpf.unique' => 'Este CPF já está cadastrado no sistema.',
+            'device_id' => 'required|exists:devices,id',
+            'scale_start_date' => 'nullable|date', // <-- ADICIONADO PARA ESCALA 12x36
+        ], [ 
+            'cpf.unique' => 'Este CPF já está cadastrado no sistema.',
             'pis.unique' => 'Este PIS já está cadastrado no sistema.',
         ]);
 
@@ -116,6 +118,7 @@ class EmployeeController extends Controller
             'registration_number' => $request->registration_number,
             'department_id' => $request->department_id,
             'shift_id' => $request->shift_id,
+            'scale_start_date' => $request->scale_start_date, // <-- ADICIONADO PARA ESCALA 12x36
             'job_title_id' => $request->job_title_id,
             'cost_center_id' => $request->cost_center_id,
             'mobile_access' => $request->has('mobile_access'),
@@ -165,7 +168,8 @@ class EmployeeController extends Controller
             // O comando abaixo diz: É único, exceto para este funcionário que já é o dono do CPF
             'cpf' => 'nullable|string|max:14|unique:employees,cpf,' . $employee->id,
             'pis' => 'required|string|max:20|unique:employees,pis,' . $employee->id,
-            'device_id' => 'required|exists:devices,id'
+            'device_id' => 'required|exists:devices,id',
+            'scale_start_date' => 'nullable|date', // <-- ADICIONADO PARA ESCALA 12x36
         ], [
             'cpf.unique' => 'Este CPF já está cadastrado em outro servidor.',
             'pis.unique' => 'Este PIS já está cadastrado em outro servidor.',
@@ -179,6 +183,7 @@ class EmployeeController extends Controller
             'registration_number' => $request->registration_number,
             'department_id' => $request->department_id,
             'shift_id' => $request->shift_id,
+            'scale_start_date' => $request->scale_start_date, // <-- ADICIONADO PARA ESCALA 12x36
             'job_title_id' => $request->job_title_id,
             'cost_center_id' => $request->cost_center_id,
             'mobile_access' => $request->has('mobile_access'),

@@ -104,7 +104,8 @@ class AdminController extends Controller
             'name' => 'required|string|max:255',
             'cpf' => 'required|string|max:14|unique:employees,cpf', // CPF obrigatório e único
             'pis' => 'required|string|max:20',
-            'device_id' => 'required|exists:devices,id'
+            'device_id' => 'required|exists:devices,id',
+            'scale_start_date' => 'nullable|date', // <-- ADICIONADO PARA 12x36
         ]);
 
         $companyId = Auth::user()->company_id;
@@ -119,6 +120,7 @@ class AdminController extends Controller
             'registration_number' => $request->registration_number,
             'department_id' => $request->department_id,
             'shift_id' => $request->shift_id,
+            'scale_start_date' => $request->scale_start_date, // <-- ADICIONADO PARA 12x36
             'is_active' => true,
         ])->save();
 
@@ -128,8 +130,8 @@ class AdminController extends Controller
             User::create([
                 'name' => $request->name,
                 'cpf' => $request->cpf,
-                'email' => $request->cpf . '@servidor.local', // Email fictício apenas para o banco não reclamar
-                'password' => Hash::make($request->cpf), // SENHA PADRÃO = CPF (Sem pontuação se digitou sem)
+                'email' => preg_replace('/[^0-9]/', '', $request->cpf) . '@servidor.local', // Melhor email fictício
+                'password' => Hash::make(preg_replace('/[^0-9]/', '', $request->cpf)), // SENHA PADRÃO = CPF LIMPO
                 'company_id' => $companyId,
                 'role' => 'employee', // Garante que ele é perfil funcionário
                 'department_id' => $request->department_id
@@ -242,6 +244,19 @@ class AdminController extends Controller
         return redirect()->back()->with('success', 'Exceção configurada com sucesso.');
     }
 
+    public function destroyShiftException(ShiftException $exception)
+    {
+        // Garante que a exceção pertence à mesma empresa do usuário logado
+        if ($exception->employee->company_id !== Auth::user()->company_id) {
+            abort(403, 'Acesso negado.');
+        }
+
+        $exception->delete();
+        Cache::flush();
+
+        return redirect()->back()->with('success', 'Exceção/Troca de Plantão removida! O espelho do servidor foi recalculado automaticamente.');
+    }
+
     public function storeDepartmentException(Request $request)
     {
         $request->validate([
@@ -299,6 +314,18 @@ class AdminController extends Controller
             ->where('is_manual', true)
             ->orderBy('punch_time', 'desc')
             ->get();
+            
+        $manualPunches = PunchLog::where('employee_id', $employee->id)
+            ->whereBetween('punch_time', [$startDate->copy()->startOfDay(), $endDate->copy()->endOfDay()])
+            ->where('is_manual', true)
+            ->orderBy('punch_time', 'desc')
+            ->get();
+
+        // ADICIONE ESTE BLOCO: Busca as Trocas de Plantão do mês
+        $shiftExceptions = ShiftException::where('employee_id', $employee->id)
+            ->whereBetween('exception_date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')])
+            ->orderBy('exception_date', 'desc')
+            ->get();
 
         $report = [];
         $totals = ['expected_minutes' => 0, 'worked_minutes' => 0, 'overtime_minutes' => 0, 'delay_minutes' => 0];
@@ -327,7 +354,7 @@ class AdminController extends Controller
         Carbon::setLocale('pt_BR');
         $period = $startDate->translatedFormat('F / Y');
 
-        return view('timesheet.report', compact('employee', 'report', 'totalsFormatted', 'period', 'absences', 'manualPunches'));
+        return view('timesheet.report', compact('employee', 'report', 'totalsFormatted', 'period', 'absences', 'manualPunches', 'shiftExceptions'));
     }
 
     private function parseMinutes(string $hhmm): int

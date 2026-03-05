@@ -77,6 +77,7 @@ Route::middleware('auth')->group(function () {
             Route::post('/admin/absences', [AdminController::class, 'storeAbsence'])->name('admin.absences.store');
             Route::delete('/absences/{absence}', [AdminController::class, 'destroyAbsence'])->name('absences.destroy');
             Route::post('/admin/shift-exceptions', [AdminController::class, 'storeShiftSwap'])->name('admin.shift_exceptions.store');
+            Route::delete('/admin/shift-exceptions/{exception}', [AdminController::class, 'destroyShiftException'])->name('admin.shift_exceptions.destroy');
             Route::get('/admin/employees/{employee}/timesheet', [AdminController::class, 'reportTimesheet'])->name('admin.timesheet.report');
 
             // ----- CADASTROS BASE -----
@@ -88,7 +89,7 @@ Route::middleware('auth')->group(function () {
             Route::resource('/admin/holidays', HolidayController::class)->only(['index', 'store', 'destroy']);
 
             // Rotas de Tratamento de Ponto
-            Route::post('/timesheet/{employee}/manual-punch', [App\Http\Controllers\PunchLogController::class, 'store'])->name('timesheet.manual-punch');
+            Route::post('/timesheet/{employee}/manual-punch', [EmployeeController::class, 'storeManualPunch'])->name('timesheet.manual-punch');
             Route::post('/timesheet/{employee}/absence', [AdminController::class, 'storeAbsence'])->name('timesheet.absence');
             Route::delete('/absences/{absence}', [AdminController::class, 'destroyAbsence'])->name('absences.destroy');
             Route::delete('/punch-logs/{punchLog}', [AdminController::class, 'destroyPunchLog'])->name('punch-logs.destroy');

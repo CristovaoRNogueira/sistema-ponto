@@ -23,34 +23,46 @@ class Employee extends Model
         'is_active',
         'dismissal_reason_id',
         'dismissal_date',
-        'address'
+        'address',
+        'scale_start_date'   // <-- Perfeito, adicionado aqui!
     ];
 
-    // 2. Relacionamento: Batidas de Ponto
+    // 2. Casts (Transformações Automáticas do Laravel)
+    protected function casts(): array
+    {
+        return [
+            'is_active' => 'boolean',
+            'mobile_access' => 'boolean',
+            'scale_start_date' => 'date', // Garante que o sistema entenda isso como uma Data
+            'dismissal_date' => 'date',
+        ];
+    }
+
+    // 3. Relacionamento: Batidas de Ponto
     public function punchLogs()
     {
         return $this->hasMany(PunchLog::class);
     }
 
-    // 3. Relacionamento: Jornada de Trabalho (Essencial para o Espelho)
+    // 4. Relacionamento: Jornada de Trabalho (Essencial para o Espelho)
     public function shift()
     {
         return $this->belongsTo(Shift::class);
     }
 
-    // 4. Relacionamento: Órgão / Empresa
+    // 5. Relacionamento: Órgão / Empresa
     public function company()
     {
         return $this->belongsTo(Company::class);
     }
 
-    // 5. Relacionamento: Departamento / Secretaria
+    // 6. Relacionamento: Departamento / Secretaria
     public function department()
     {
         return $this->belongsTo(Department::class);
     }
 
-    // 6. Relacionamentos Auxiliares (Cargo e Centro de Custo)
+    // 7. Relacionamentos Auxiliares (Cargo e Centro de Custo)
     public function jobTitle()
     {
         return $this->belongsTo(JobTitle::class);

@@ -19,15 +19,19 @@ class ShiftController extends Controller
     {
         $data = $request->validate([
             'name' => 'required|string',
-            'in_1' => 'required', 
+            'in_1' => 'required',
             'out_1' => 'required',
-            'in_2' => 'nullable', 
+            'in_2' => 'nullable',
             'out_2' => 'nullable',
-            'tolerance_minutes' => 'nullable|integer'
+            'tolerance_minutes' => 'nullable|integer',
+            'is_12x36' => 'nullable|boolean' // <-- ADICIONADO: Validação do novo campo
         ]);
 
         $data['company_id'] = Auth::user()->company_id;
         $data['tolerance_minutes'] = $data['tolerance_minutes'] ?? 10;
+
+        // <-- ADICIONADO: Captura se o checkbox de 12x36 foi marcado
+        $data['is_12x36'] = $request->has('is_12x36');
 
         // --- CÁLCULO AUTOMÁTICO DOS MINUTOS DIÁRIOS ---
         $minutes = 0;
@@ -35,7 +39,7 @@ class ShiftController extends Controller
         // Calcula o primeiro turno
         $in1 = Carbon::createFromFormat('H:i', $data['in_1']);
         $out1 = Carbon::createFromFormat('H:i', $data['out_1']);
-        
+
         // Se a saída for menor que a entrada, significa que virou a noite
         if ($out1->lt($in1)) {
             $out1->addDay();
@@ -46,7 +50,7 @@ class ShiftController extends Controller
         if (!empty($data['in_2']) && !empty($data['out_2'])) {
             $in2 = Carbon::createFromFormat('H:i', $data['in_2']);
             $out2 = Carbon::createFromFormat('H:i', $data['out_2']);
-            
+
             if ($out2->lt($in2)) {
                 $out2->addDay();
             }
