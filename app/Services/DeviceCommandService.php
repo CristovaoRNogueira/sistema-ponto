@@ -6,6 +6,7 @@ use App\Models\Device;
 use App\Models\Employee;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
 
 class DeviceCommandService
 {
@@ -15,6 +16,7 @@ class DeviceCommandService
             throw new \Exception("Sem IP configurado.");
         }
 
+        // Força HTTPS e ignora o certificado autoassinado (verify => false)
         $response = Http::withOptions(['verify' => false])
             ->withHeaders(['Content-Type' => 'application/json', 'Accept' => 'application/json'])
             ->timeout(10)
@@ -31,42 +33,45 @@ class DeviceCommandService
         throw new \Exception("Erro de Login (HTTP {$response->status()}): {$erro}");
     }
 
-    // NOVA REGRA: $useMode671 diz se devemos forçar a Portaria 671 na URL
     public function sendCommand(Device $device, string $endpoint, array $payload = [], bool $useMode671 = true)
     {
         try {
             $session = $this->authenticate($device);
-            
-            // Colocamos o mode=671 na URL
+
+            // Força HTTPS
             $url = "https://{$device->ip_address}/{$endpoint}?session={$session}";
             if ($useMode671) {
                 $url .= "&mode=671";
             }
 
-            // Para comandos de "load", o relógio iDClass muitas vezes exige 
-            // que a session seja o ÚNICO campo no JSON se não houver filtros.
             $finalPayload = ['session' => $session];
-            
-            // Mescla com o restante do payload apenas se houver dados (como na criação de usuários)
             if (!empty($payload)) {
                 $finalPayload = array_merge($finalPayload, $payload);
             }
 
-            Log::info("==== PAYLOAD ENVIADO PARA {$endpoint} ====", $finalPayload);
-
+            // Ignora SSL também no envio do comando
             $response = Http::withOptions(['verify' => false])
-                ->asJson() 
+                ->asJson()
                 ->timeout(30)
                 ->post($url, $finalPayload);
 
             if (!$response->successful()) {
-                Log::error("Erro {$endpoint} IP {$device->ip_address}: " . $response->body());
-                return false;
+                throw new \Exception("Erro {$endpoint}: " . $response->body());
             }
+
+            $device->update([
+                'is_online' => true,
+                'last_seen_at' => Carbon::now(),
+                'last_error' => null
+            ]);
 
             return $response->json();
         } catch (\Exception $e) {
             Log::error("FALHA DE SINCRONIZAÇÃO ({$device->name}): " . $e->getMessage());
+            $device->update([
+                'is_online' => false,
+                'last_error' => substr($e->getMessage(), 0, 255)
+            ]);
             return false;
         }
     }
@@ -102,20 +107,59 @@ class DeviceCommandService
         return $this->sendCommand($device, 'add_users.fcgi', ['users' => $usersPayload]);
     }
 
-    /**
-     * Puxa todos os usuários do relógio.
-     * Deixamos o payload vazio para que o sendCommand envie apenas a session.
-     */
     public function getUsersFromDevice(Device $device, int $limit = 100, int $offset = 0)
-{
-    return $this->sendCommand(
-        $device,
-        'load_users.fcgi',
-        [
-            'limit' => (int) $limit,
-            'offset' => (int) $offset
-        ],
-        true
-    );
-}
+    {
+        return $this->sendCommand(
+            $device,
+            'load_users.fcgi',
+            [
+                'limit' => (int) $limit,
+                'offset' => (int) $offset
+            ],
+            true
+        );
+    }
+
+    public function checkHealth(Device $device)
+    {
+        try {
+            $session = $this->authenticate($device);
+
+            // Força HTTPS e ignora SSL no Health Check
+            $response = Http::withOptions(['verify' => false])
+                ->asJson()
+                ->timeout(10)
+                ->post("https://{$device->ip_address}/get_system_variables.fcgi?session={$session}", [
+                    'session' => $session
+                ]);
+
+            if ($response->successful()) {
+                $data = $response->json();
+                $paperStatus = 'ok';
+
+                if (isset($data['printer_paper_empty']) && $data['printer_paper_empty'] == '1') {
+                    $paperStatus = 'empty';
+                } elseif (isset($data['printer_paper_low']) && $data['printer_paper_low'] == '1') {
+                    $paperStatus = 'low';
+                }
+
+                $device->update([
+                    'is_online' => true,
+                    'last_seen_at' => Carbon::now(),
+                    'paper_status' => $paperStatus,
+                    'last_error' => null
+                ]);
+
+                return true;
+            }
+
+            throw new \Exception("Relógio retornou erro HTTP " . $response->status());
+        } catch (\Exception $e) {
+            $device->update([
+                'is_online' => false,
+                'last_error' => substr($e->getMessage(), 0, 255)
+            ]);
+            return false;
+        }
+    }
 }

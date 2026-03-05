@@ -55,6 +55,8 @@ Route::middleware('auth')->group(function () {
         // =========================================================
         Route::middleware(['admin_access'])->group(function () {
 
+            Route::post('/devices/{device}/check-status', [\App\Http\Controllers\DeviceController::class, 'checkStatus'])->name('devices.check-status');
+
             // 1. Dashboard
             Route::get('/dashboard', [AdminController::class, 'index'])->name('dashboard');
             // Mantive como GET conforme seu código original, mas verifique se o form usa GET ou POST

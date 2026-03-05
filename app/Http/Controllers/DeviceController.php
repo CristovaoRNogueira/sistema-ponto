@@ -9,7 +9,7 @@ use App\Models\CommandQueue;
 use App\Services\DeviceCommandService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Log; // Importação adicionada para evitar erro 500
+use Illuminate\Support\Facades\Log;
 
 class DeviceController extends Controller
 {
@@ -45,20 +45,38 @@ class DeviceController extends Controller
             abort(403);
         }
 
-        // Desvincula as batidas antigas deste relógio para preservar o histórico
         PunchLog::where('device_id', $device->id)->update(['device_id' => null]);
-        
-        // Remove comandos pendentes na fila
         CommandQueue::where('device_id', $device->id)->delete();
-
         $device->delete();
 
         return back()->with('success', 'Relógio excluído com sucesso!');
     }
 
     /**
-     * Sincronização em Lote (Envia do Sistema para o Relógio)
+     * NOVO: Rota para forçar a verificação de status online/bobina manualmente
      */
+    public function checkStatus(Device $device, DeviceCommandService $commandService)
+    {
+        if ($device->company_id !== Auth::user()->company_id) {
+            abort(403);
+        }
+
+        $success = $commandService->checkHealth($device);
+
+        if ($success) {
+            // Recarrega do banco para pegar o status atualizado
+            $device->refresh();
+
+            $msg = "Relógio Online!";
+            if ($device->paper_status === 'empty') $msg .= " MAS ESTÁ SEM PAPEL!";
+            elseif ($device->paper_status === 'low') $msg .= " Papel acabando.";
+
+            return back()->with('success', $msg);
+        } else {
+            return back()->with('error', 'Falha ao conectar no relógio. Ele pode estar desligado ou fora da rede VPN.');
+        }
+    }
+
     public function syncEmployees(Device $device, DeviceCommandService $commandService)
     {
         $employees = Employee::where('company_id', $device->company_id)
@@ -72,9 +90,9 @@ class DeviceController extends Controller
         $usersPayload = [];
         foreach ($employees as $emp) {
             $cpfLimpo = preg_replace('/[^0-9]/', '', $emp->cpf ?? '');
-            
+
             if (empty($cpfLimpo) || strlen($cpfLimpo) !== 11) {
-                continue; 
+                continue;
             }
 
             $userData = [
@@ -102,65 +120,61 @@ class DeviceController extends Controller
         }
     }
 
-    /**
-     * Importar servidores (Puxa do Relógio para o Sistema)
-     */
     public function importEmployees(Device $device, DeviceCommandService $commandService)
-{
-    $limit = 100;
-    $offset = 0;
-    $todosUsuarios = [];
+    {
+        $limit = 100;
+        $offset = 0;
+        $todosUsuarios = [];
 
-    do {
-        $response = $commandService->getUsersFromDevice($device, $limit, $offset);
+        do {
+            $response = $commandService->getUsersFromDevice($device, $limit, $offset);
 
-        if (!$response || (!isset($response['users']) && !isset($response['values']))) {
-            Log::error("Resposta inválida do relógio {$device->name}:", (array)$response);
-            break;
+            if (!$response || (!isset($response['users']) && !isset($response['values']))) {
+                Log::error("Resposta inválida do relógio {$device->name}:", (array)$response);
+                break;
+            }
+
+            $lote = $response['users'] ?? $response['values'] ?? [];
+
+            if (empty($lote)) {
+                break;
+            }
+
+            $todosUsuarios = array_merge($todosUsuarios, $lote);
+
+            $offset += $limit;
+        } while (count($lote) === $limit);
+
+        if (empty($todosUsuarios)) {
+            return back()->with('error', 'Nenhum usuário retornado pelo relógio.');
         }
 
-        $lote = $response['users'] ?? $response['values'] ?? [];
+        $importados = 0;
 
-        if (empty($lote)) {
-            break;
+        foreach ($todosUsuarios as $userDevice) {
+            $documento = $userDevice['cpf'] ?? $userDevice['pis'] ?? null;
+
+            if (!$documento) continue;
+
+            $cpfLimpo = preg_replace('/[^0-9]/', '', (string)$documento);
+            $cpfLimpo = str_pad($cpfLimpo, 11, '0', STR_PAD_LEFT);
+
+            $existe = Employee::where('company_id', $device->company_id)
+                ->where('cpf', $cpfLimpo)
+                ->exists();
+
+            if (!$existe) {
+                Employee::create([
+                    'company_id' => $device->company_id,
+                    'name' => $userDevice['name'] ?? 'Servidor Importado',
+                    'cpf' => $cpfLimpo,
+                    'registration_number' => $userDevice['registration'] ?? null,
+                    'is_active' => true,
+                ]);
+                $importados++;
+            }
         }
 
-        $todosUsuarios = array_merge($todosUsuarios, $lote);
-
-        $offset += $limit;
-
-    } while (count($lote) === $limit);
-
-    if (empty($todosUsuarios)) {
-        return back()->with('error', 'Nenhum usuário retornado pelo relógio.');
+        return back()->with('success', "{$importados} novos servidores foram importados com sucesso!");
     }
-
-    $importados = 0;
-
-    foreach ($todosUsuarios as $userDevice) {
-        $documento = $userDevice['cpf'] ?? $userDevice['pis'] ?? null;
-
-        if (!$documento) continue;
-
-        $cpfLimpo = preg_replace('/[^0-9]/', '', (string)$documento);
-        $cpfLimpo = str_pad($cpfLimpo, 11, '0', STR_PAD_LEFT);
-
-        $existe = Employee::where('company_id', $device->company_id)
-            ->where('cpf', $cpfLimpo)
-            ->exists();
-
-        if (!$existe) {
-            Employee::create([
-                'company_id' => $device->company_id,
-                'name' => $userDevice['name'] ?? 'Servidor Importado',
-                'cpf' => $cpfLimpo,
-                'registration_number' => $userDevice['registration'] ?? null,
-                'is_active' => true,
-            ]);
-            $importados++;
-        }
-    }
-
-    return back()->with('success', "{$importados} novos servidores foram importados com sucesso!");
-}
 }
