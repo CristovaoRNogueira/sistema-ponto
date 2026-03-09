@@ -11,6 +11,62 @@
         </h2>
     </x-slot>
 
+    @if(Auth::user()->isAdmin() || Auth::user()->isOperator())
+    @php
+    // Busca qualquer relógio que esteja Offline, Sem Papel ou com Pouco Papel
+    $problematicDevices = \App\Models\Device::where('company_id', Auth::user()->company_id)
+    ->where(function($query) {
+    $query->where('is_online', false)
+    ->orWhereIn('paper_status', ['low', 'empty']);
+    })->get();
+    @endphp
+
+    @if($problematicDevices->count() > 0)
+    <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 mt-6">
+        <div class="bg-red-50 border border-red-200 p-4 rounded-lg shadow-sm">
+            <div class="flex items-center mb-3 border-b border-red-200 pb-2">
+                <svg class="w-6 h-6 text-red-600 mr-2 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                </svg>
+                <h3 class="text-red-800 font-black text-lg uppercase tracking-wider">Atenção: Verifique os Relógios de Ponto!</h3>
+            </div>
+            <div class="ml-1 text-sm text-red-700">
+                <ul class="space-y-2">
+                    @foreach($problematicDevices as $dev)
+                    <li class="flex items-center bg-white p-2 rounded border border-red-100 shadow-sm">
+                        <span class="font-bold text-gray-900 w-1/3">{{ $dev->name }}</span>
+
+                        <div class="w-1/3">
+                            @if(!$dev->is_online)
+                            <span class="bg-red-100 text-red-800 border border-red-200 px-2 py-1 rounded text-xs font-black uppercase flex items-center w-fit">
+                                <span class="w-2 h-2 rounded-full bg-red-600 mr-2"></span> Equipamento Offline
+                            </span>
+                            @elseif($dev->paper_status === 'empty')
+                            <span class="bg-red-600 text-white px-2 py-1 rounded text-xs font-black uppercase flex items-center w-fit shadow-sm">
+                                <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                                Sem Bobina de Papel
+                            </span>
+                            @elseif($dev->paper_status === 'low')
+                            <span class="bg-yellow-100 text-yellow-800 border border-yellow-300 px-2 py-1 rounded text-xs font-black uppercase flex items-center w-fit">
+                                Pouco Papel (Acabando)
+                            </span>
+                            @endif
+                        </div>
+
+                        <div class="w-1/3 text-right text-xs text-gray-500 font-mono">
+                            Visto há: {{ $dev->last_seen_at ? $dev->last_seen_at->diffForHumans() : 'N/A' }}
+                        </div>
+                    </li>
+                    @endforeach
+                </ul>
+            </div>
+        </div>
+    </div>
+    @endif
+    @endif
+
     <div class="py-8">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
 

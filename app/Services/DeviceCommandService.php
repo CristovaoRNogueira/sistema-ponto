@@ -127,45 +127,50 @@ class DeviceCommandService
     }
 
     // =================================================================
-    // RADAR DE SAÚDE (Isolado e à prova de falhas)
+    // RADAR DE SAÚDE DEFINITIVO (Mapeado para o iDClass da Prefeitura)
     // =================================================================
     public function checkHealth(Device $device)
     {
         try {
-            // 1. TENTA LOGAR. Se passar daqui, a máquina está viva na rede!
+            // 1. TENTA LOGAR (Se passar, a rede está viva!)
             $session = $this->authenticate($device);
 
-            // JÁ MARCA COMO ONLINE IMEDIATAMENTE!
+            $paperStatus = 'ok';
+            $avisoExtra = null;
+
+            // 2. CHAMA O COMANDO EXATO QUE O SEU RELÓGIO SUPORTA
+            $response = Http::withOptions(['verify' => false])->asJson()->timeout(10)
+                ->post("https://{$device->ip_address}/get_system_information.fcgi?session={$session}", [
+                    'session' => $session
+                ]);
+
+            if ($response->successful()) {
+                $data = $response->json();
+
+                // 3. LÊ AS VARIÁVEIS EXATAS DO SEU FIRMWARE (Com base no Raio-X)
+                $paperOk = $data['paper_ok'] ?? true;
+                $isLow = isset($data['low_paper']) && $data['low_paper'] === true;
+
+                if ($paperOk === false) {
+                    $paperStatus = 'empty';
+                    $avisoExtra = "Bobina de papel vazia ou tampa aberta.";
+                } elseif ($isLow) {
+                    $paperStatus = 'low';
+                    $avisoExtra = "Pouco papel restante.";
+                }
+            }
+
+            // 4. ATUALIZA O BANCO DE DADOS
             $device->update([
                 'is_online' => true,
-                'last_seen_at' => Carbon::now(),
-                'last_error' => null
+                'last_seen_at' => \Carbon\Carbon::now(),
+                'paper_status' => $paperStatus,
+                'last_error' => $avisoExtra
             ]);
-
-            // 2. Tenta pegar a bobina (Pode falhar em firmwares antigos, mas não derruba a rede)
-            try {
-                $response = Http::withOptions(['verify' => false])->asJson()->timeout(5)
-                    ->post("https://{$device->ip_address}/get_printer_status.fcgi?session={$session}", [
-                        'session' => $session
-                    ]);
-
-                if ($response->successful()) {
-                    $data = $response->json();
-                    $paperStatus = 'ok';
-                    if (isset($data['paper_empty']) && $data['paper_empty'] == '1') {
-                        $paperStatus = 'empty';
-                    } elseif (isset($data['paper_low']) && $data['paper_low'] == '1') {
-                        $paperStatus = 'low';
-                    }
-                    $device->update(['paper_status' => $paperStatus]);
-                }
-            } catch (\Exception $subE) {
-                Log::warning("A máquina {$device->name} está online, mas não retornou o status do papel.");
-            }
 
             return true;
         } catch (\Exception $e) {
-            // Se falhou o login (Timeout), aí sim a máquina caiu
+            // Falha grave: Desligado da tomada ou VPN caiu
             $device->update([
                 'is_online' => false,
                 'last_error' => substr($e->getMessage(), 0, 255)
