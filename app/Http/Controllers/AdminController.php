@@ -314,7 +314,7 @@ class AdminController extends Controller
             ->where('is_manual', true)
             ->orderBy('punch_time', 'desc')
             ->get();
-            
+
         $manualPunches = PunchLog::where('employee_id', $employee->id)
             ->whereBetween('punch_time', [$startDate->copy()->startOfDay(), $endDate->copy()->endOfDay()])
             ->where('is_manual', true)
@@ -461,12 +461,14 @@ class AdminController extends Controller
                 $saldoLiquido = $totalTrabalhadoMin - $cargaMensalMin;
 
                 $formatMin = fn($min) => sprintf('%02d:%02d', floor($min / 60), $min % 60);
-                $formatSaldo = fn($min) => ($min < 0 ? '-' : '+') . sprintf('%02d:%02d', abs(intdiv($min, 60)), abs($min % 60));
+
+                // CORREÇÃO 1: Adicionado um espaço antes do sinal para o Excel não achar que é fórmula
+                $formatSaldo = fn($min) => ' ' . ($min < 0 ? '-' : '+') . sprintf('%02d:%02d', abs(intdiv($min, 60)), abs($min % 60));
 
                 $row = [
                     $emp->registration_number ?? 'S/N',
                     $emp->name,
-                    $emp->cpf,
+                    ' ' . $emp->cpf, // CORREÇÃO 2: Adicionado um espaço para manter o zero à esquerda do CPF
                     $emp->department->name ?? 'Sem Lotacao',
                     $diasTrabalhados,
                     $faltasIntegrais,
