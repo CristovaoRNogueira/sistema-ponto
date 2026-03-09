@@ -6,6 +6,7 @@ use App\Models\Device;
 use App\Models\Employee;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
 
 class DeviceCommandService
 {
@@ -15,9 +16,8 @@ class DeviceCommandService
             throw new \Exception("Sem IP configurado.");
         }
 
-        $response = Http::withOptions(['verify' => false])
-            ->withHeaders(['Content-Type' => 'application/json', 'Accept' => 'application/json'])
-            ->timeout(10)
+        // Usando o mesmo formato idêntico ao do robô ponto:sync
+        $response = Http::withOptions(['verify' => false])->asJson()->timeout(10)
             ->post("https://{$device->ip_address}/login.fcgi", [
                 'login' => $device->username ?? 'admin',
                 'password' => $device->password ?? 'admin'
@@ -31,38 +31,37 @@ class DeviceCommandService
         throw new \Exception("Erro de Login (HTTP {$response->status()}): {$erro}");
     }
 
-    // FUNÇÃO ORIGINAL RESTAURADA: Sem códigos intrusivos de banco de dados
     public function sendCommand(Device $device, string $endpoint, array $payload = [], bool $useMode671 = true)
     {
         try {
             $session = $this->authenticate($device);
 
-            // Colocamos o mode=671 na URL
             $url = "https://{$device->ip_address}/{$endpoint}?session={$session}";
             if ($useMode671) {
                 $url .= "&mode=671";
             }
 
-            // Para comandos de "load", o relógio iDClass muitas vezes exige 
-            // que a session seja o ÚNICO campo no JSON se não houver filtros.
             $finalPayload = ['session' => $session];
-
-            // Mescla com o restante do payload apenas se houver dados
             if (!empty($payload)) {
                 $finalPayload = array_merge($finalPayload, $payload);
             }
 
             Log::info("==== PAYLOAD ENVIADO PARA {$endpoint} ====", $finalPayload);
 
-            $response = Http::withOptions(['verify' => false])
-                ->asJson()
-                ->timeout(30)
+            $response = Http::withOptions(['verify' => false])->asJson()->timeout(30)
                 ->post($url, $finalPayload);
 
             if (!$response->successful()) {
                 Log::error("Erro {$endpoint} IP {$device->ip_address}: " . $response->body());
                 return false;
             }
+
+            // Se qualquer comando passar, significa que a máquina está online
+            $device->update([
+                'is_online' => true,
+                'last_seen_at' => Carbon::now(),
+                'last_error' => null
+            ]);
 
             return $response->json();
         } catch (\Exception $e) {
@@ -99,7 +98,19 @@ class DeviceCommandService
 
     public function syncUsersBatch(Device $device, array $usersPayload)
     {
-        return $this->sendCommand($device, 'add_users.fcgi', ['users' => $usersPayload]);
+        $chunks = array_chunk($usersPayload, 50);
+        $success = true;
+
+        foreach ($chunks as $chunk) {
+            $result = $this->sendCommand($device, 'add_users.fcgi', ['users' => $chunk]);
+            if ($result === false) {
+                $success = false;
+                Log::error("Falha ao enviar lote de servidores para o relógio " . $device->name);
+                break;
+            }
+        }
+
+        return $success;
     }
 
     public function getUsersFromDevice(Device $device, int $limit = 100, int $offset = 0)
@@ -116,42 +127,45 @@ class DeviceCommandService
     }
 
     // =================================================================
-    // FUNÇÃO DO RADAR (Isolada para não quebrar a API Principal)
+    // RADAR DE SAÚDE (Isolado e à prova de falhas)
     // =================================================================
     public function checkHealth(Device $device)
     {
         try {
+            // 1. TENTA LOGAR. Se passar daqui, a máquina está viva na rede!
             $session = $this->authenticate($device);
 
-            $response = Http::withOptions(['verify' => false])
-                ->asJson()
-                ->timeout(10)
-                ->post("https://{$device->ip_address}/get_printer_status.fcgi?session={$session}", [
-                    'session' => $session
-                ]);
+            // JÁ MARCA COMO ONLINE IMEDIATAMENTE!
+            $device->update([
+                'is_online' => true,
+                'last_seen_at' => Carbon::now(),
+                'last_error' => null
+            ]);
 
-            if ($response->successful()) {
-                $data = $response->json();
-                $paperStatus = 'ok';
+            // 2. Tenta pegar a bobina (Pode falhar em firmwares antigos, mas não derruba a rede)
+            try {
+                $response = Http::withOptions(['verify' => false])->asJson()->timeout(5)
+                    ->post("https://{$device->ip_address}/get_printer_status.fcgi?session={$session}", [
+                        'session' => $session
+                    ]);
 
-                if (isset($data['paper_empty']) && $data['paper_empty'] == '1') {
-                    $paperStatus = 'empty';
-                } elseif (isset($data['paper_low']) && $data['paper_low'] == '1') {
-                    $paperStatus = 'low';
+                if ($response->successful()) {
+                    $data = $response->json();
+                    $paperStatus = 'ok';
+                    if (isset($data['paper_empty']) && $data['paper_empty'] == '1') {
+                        $paperStatus = 'empty';
+                    } elseif (isset($data['paper_low']) && $data['paper_low'] == '1') {
+                        $paperStatus = 'low';
+                    }
+                    $device->update(['paper_status' => $paperStatus]);
                 }
-
-                $device->update([
-                    'is_online' => true,
-                    'last_seen_at' => \Carbon\Carbon::now(),
-                    'paper_status' => $paperStatus,
-                    'last_error' => null
-                ]);
-
-                return true;
+            } catch (\Exception $subE) {
+                Log::warning("A máquina {$device->name} está online, mas não retornou o status do papel.");
             }
 
-            throw new \Exception("Relógio retornou erro HTTP " . $response->status());
+            return true;
         } catch (\Exception $e) {
+            // Se falhou o login (Timeout), aí sim a máquina caiu
             $device->update([
                 'is_online' => false,
                 'last_error' => substr($e->getMessage(), 0, 255)
