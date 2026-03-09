@@ -30,7 +30,7 @@ class EmployeeController extends Controller
         if ($request->filled('department_id')) {
             $deptId = $request->department_id;
             $dept = Department::find($deptId);
-            
+
             // Se clicou na "Secretaria" (Pai), puxamos os servidores dela E dos departamentos filhos
             if ($dept && $dept->parent_id === null) {
                 $childIds = $dept->children()->pluck('id')->toArray();
@@ -48,26 +48,26 @@ class EmployeeController extends Controller
             // Remove máscara de CPF/PIS caso o usuário digite com pontos e traços
             $searchClean = preg_replace('/[^0-9]/', '', $search);
 
-            $query->where(function($q) use ($search, $searchClean) {
+            $query->where(function ($q) use ($search, $searchClean) {
                 $q->where('name', 'like', "%{$search}%");
-                
+
                 // Se a pessoa digitou apenas números/documento, procura em CPF ou PIS
                 if (!empty($searchClean)) {
                     $q->orWhere('cpf', 'like', "%{$searchClean}%")
-                      ->orWhere('pis', 'like', "%{$searchClean}%");
+                        ->orWhere('pis', 'like', "%{$searchClean}%");
                 }
             });
         }
 
         // withQueryString() garante que os filtros (departamento e pesquisa) continuem ativos ao mudar de página
         $employees = $query->orderBy('name')->paginate(15)->withQueryString();
-        
+
         // Puxa o Organograma para desenhar o Menu Lateral na view index
         $secretariats = Department::where('company_id', $companyId)
-                                  ->whereNull('parent_id')
-                                  ->with('children')
-                                  ->orderBy('name')
-                                  ->get();
+            ->whereNull('parent_id')
+            ->with('children')
+            ->orderBy('name')
+            ->get();
 
         return view('employees.index', compact('employees', 'secretariats'));
     }
@@ -76,14 +76,14 @@ class EmployeeController extends Controller
     public function create()
     {
         $companyId = Auth::user()->company_id;
-        
+
         // Puxa a hierarquia de Secretarias para o <select> com optgroup
         $secretariats = Department::where('company_id', $companyId)
-                                  ->whereNull('parent_id')
-                                  ->with('children')
-                                  ->orderBy('name')
-                                  ->get();
-                                  
+            ->whereNull('parent_id')
+            ->with('children')
+            ->orderBy('name')
+            ->get();
+
         $shifts = Shift::where('company_id', $companyId)->get();
         $devices = Device::where('company_id', $companyId)->get();
         $jobTitles = DB::table('job_titles')->where('company_id', $companyId)->get();
@@ -101,7 +101,7 @@ class EmployeeController extends Controller
             'pis' => 'required|string|max:20|unique:employees,pis', // Verifica se o PIS já existe
             'device_id' => 'required|exists:devices,id',
             'scale_start_date' => 'nullable|date', // <-- ADICIONADO PARA ESCALA 12x36
-        ], [ 
+        ], [
             'cpf.unique' => 'Este CPF já está cadastrado no sistema.',
             'pis.unique' => 'Este PIS já está cadastrado no sistema.',
         ]);
@@ -141,13 +141,13 @@ class EmployeeController extends Controller
         }
 
         $companyId = Auth::user()->company_id;
-        
+
         $secretariats = Department::where('company_id', $companyId)
-                                  ->whereNull('parent_id')
-                                  ->with('children')
-                                  ->orderBy('name')
-                                  ->get();
-                                  
+            ->whereNull('parent_id')
+            ->with('children')
+            ->orderBy('name')
+            ->get();
+
         $shifts = Shift::where('company_id', $companyId)->get();
         $devices = Device::where('company_id', $companyId)->get();
         $jobTitles = DB::table('job_titles')->where('company_id', $companyId)->get();
@@ -249,7 +249,7 @@ class EmployeeController extends Controller
 
         Absence::create([
             'employee_id' => $employee->id,
-            'type' => 'medical_certificate', 
+            'type' => 'medical_certificate',
             'start_date' => $request->start_date,
             'end_date' => $request->end_date,
             'reason' => $request->reason,
@@ -279,5 +279,106 @@ class EmployeeController extends Controller
             ->update(['department_id' => $department->id]);
 
         return back()->with('success', count($request->employee_ids) . ' servidor(es) movido(s) para ' . $department->name . ' com sucesso!');
+    }
+
+    // =========================================================
+    // IMPORTAÇÃO E EXPORTAÇÃO VIA CSV (Padrão Control iD)
+    // =========================================================
+
+    public function importCsv(Request $request)
+    {
+        $request->validate([
+            'csv_file' => 'required|file|mimes:csv,txt|max:2048',
+        ]);
+
+        $path = $request->file('csv_file')->getRealPath();
+
+        // Lê o arquivo linha por linha separando por ponto e vírgula (;)
+        $data = array_map(function ($v) {
+            return str_getcsv($v, ';');
+        }, file($path));
+
+        // Remove o cabeçalho (cpf;nome;administrador...)
+        $header = array_shift($data);
+
+        $companyId = Auth::user()->company_id;
+        $imported = 0;
+
+        foreach ($data as $row) {
+            // Ignora linhas vazias ou mal formatadas
+            if (count($row) < 2) continue;
+
+            $cpfBruto = $row[0] ?? '';
+            $nome = $row[1] ?? '';
+            $matricula = $row[3] ?? null; // A matrícula fica no índice 3 no padrão deles
+
+            $cpfLimpo = preg_replace('/[^0-9]/', '', $cpfBruto);
+            if (empty($cpfLimpo) || empty($nome)) continue;
+
+            $cpfLimpo = str_pad($cpfLimpo, 11, '0', STR_PAD_LEFT);
+
+            // Verifica se o CPF já existe para não duplicar
+            $existe = Employee::where('company_id', $companyId)->where('cpf', $cpfLimpo)->exists();
+
+            if (!$existe) {
+                Employee::create([
+                    'company_id' => $companyId,
+                    'name' => substr(trim($nome), 0, 255),
+                    'cpf' => $cpfLimpo,
+                    'registration_number' => $matricula,
+                    'is_active' => true,
+                ]);
+                $imported++;
+            }
+        }
+
+        return back()->with('success', "{$imported} novos servidores importados do CSV com sucesso!");
+    }
+
+    public function exportCsv()
+    {
+        $companyId = Auth::user()->company_id;
+        $employees = Employee::where('company_id', $companyId)->where('is_active', true)->get();
+
+        $filename = "servidores_" . date('Ymd_His') . ".csv";
+        $headers = [
+            "Content-type"        => "text/csv; charset=UTF-8",
+            "Content-Disposition" => "attachment; filename=$filename",
+            "Pragma"              => "no-cache",
+            "Cache-Control"       => "must-revalidate, post-check=0, pre-check=0",
+            "Expires"             => "0"
+        ];
+
+        // Colunas exatas que o relógio físico exige
+        $columns = ['cpf', 'nome', 'administrador', 'matricula', 'rfid', 'codigo', 'senha', 'barras', 'digitais'];
+
+        $callback = function () use ($employees, $columns) {
+            $file = fopen('php://output', 'w');
+
+            // Adiciona o BOM do UTF-8 para o Excel abrir com a acentuação correta
+            fputs($file, "\xEF\xBB\xBF");
+
+            fputcsv($file, $columns, ';');
+
+            foreach ($employees as $emp) {
+                $cpf = preg_replace('/[^0-9]/', '', $emp->cpf ?? '');
+
+                $row = [
+                    $cpf,
+                    $emp->name,
+                    '0', // administrador (0 = não)
+                    $emp->registration_number ?? '', // matricula
+                    '0', // rfid
+                    '0', // codigo
+                    '',  // senha
+                    '',  // barras
+                    ''   // digitais
+                ];
+                fputcsv($file, $row, ';');
+            }
+            fclose($file);
+        };
+
+        return response()->stream($callback, 200, $headers);
     }
 }

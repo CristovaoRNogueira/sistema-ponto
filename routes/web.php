@@ -67,6 +67,9 @@ Route::middleware('auth')->group(function () {
             Route::get('/admin/employees/create', [EmployeeController::class, 'create'])->name('employees.create');
             Route::post('/admin/employees', [EmployeeController::class, 'store'])->name('employees.store');
 
+            Route::post('/admin/employees/import-csv', [EmployeeController::class, 'importCsv'])->name('employees.import_csv');
+            Route::get('/admin/employees/export-csv', [EmployeeController::class, 'exportCsv'])->name('employees.export_csv');
+
             // Rota de Lote (Bulk)
             Route::post('/admin/employees/bulk-department', [EmployeeController::class, 'bulkUpdateDepartment'])->name('employees.bulk_department');
 
