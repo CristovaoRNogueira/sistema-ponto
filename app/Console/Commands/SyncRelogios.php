@@ -24,9 +24,6 @@ class SyncRelogios extends Command
             return;
         }
 
-        // Faz cache dos CPFs para não bater no banco milhares de vezes
-        $employeesCache = Employee::select('id', 'cpf', 'pis', 'company_id')->get()->groupBy('company_id');
-
         foreach ($devices as $device) {
             $this->info("Iniciando relógio: {$device->name} (IP: {$device->ip_address})...");
 
@@ -48,8 +45,13 @@ class SyncRelogios extends Command
             $session = $loginResponse['session'];
             $this->info("Login OK! Baixando arquivo AFD...");
 
-            $afdResponse = Http::withOptions(['verify' => false])->timeout(60)
-                ->post("https://{$device->ip_address}/get_afd.fcgi?session={$session}&mode=671");
+            // ==============================================================
+            // CORREÇÃO AQUI: asJson() e ['session' => $session] adicionados
+            // ==============================================================
+            $afdResponse = Http::withOptions(['verify' => false])->asJson()->timeout(60)
+                ->post("https://{$device->ip_address}/get_afd.fcgi?session={$session}&mode=671", [
+                    'session' => $session
+                ]);
 
             if (!$afdResponse->successful()) {
                 $this->error("Falha ao baixar AFD.");
@@ -60,9 +62,7 @@ class SyncRelogios extends Command
             $novasBatidas = 0;
             $naoEncontrados = 0;
 
-            $this->info("Arquivo possui " . count($linhas) . " linhas. Ignorando NSRs até: {$lastProcessedNsr}");
-
-            $companyEmployees = $employeesCache->get($device->company_id, collect());
+            $this->info("Arquivo possui " . count($linhas) . " linhas. Ignorando antigas até NSR: {$lastProcessedNsr}");
 
             foreach ($linhas as $linha) {
                 $linha = trim($linha);
@@ -70,11 +70,11 @@ class SyncRelogios extends Command
                 // Processa apenas linhas do tipo "3" (Batida de Ponto)
                 if (strlen($linha) >= 33 && substr($linha, 9, 1) === '3') {
 
-                    // Extrai o NSR rapidamente sem Regex primeiro para ganhar velocidade
+                    // Extrai o NSR rapidamente
                     $nsrString = substr($linha, 0, 9);
                     $currentNsr = (int) $nsrString;
 
-                    // A MÁGICA ESTÁ AQUI: Pula o histórico antigo instantaneamente!
+                    // Pula o histórico antigo instantaneamente!
                     if ($currentNsr <= $lastProcessedNsr) {
                         continue;
                     }
@@ -97,21 +97,24 @@ class SyncRelogios extends Command
                     }
 
                     if ($matched) {
-                        // Atualiza a memória para o final do loop
+                        // Atualiza a memória com o maior NSR encontrado
                         if ($currentNsr > $highestNsrInThisRun) {
                             $highestNsrInThisRun = $currentNsr;
                         }
 
                         if (empty($documento)) $documento = '0';
 
+                        // Variações de zeros à esquerda para a busca no banco
                         $pad11 = str_pad($documento, 11, '0', STR_PAD_LEFT);
                         $pad12 = str_pad($documento, 12, '0', STR_PAD_LEFT);
+                        $docsTestados = [$documento, $pad11, $pad12];
 
-                        // Busca na memória do Laravel em vez de fazer query no SQL
-                        $employee = $companyEmployees->first(function ($emp) use ($documento, $pad11, $pad12) {
-                            return in_array($emp->cpf, [$documento, $pad11, $pad12]) ||
-                                in_array($emp->pis, [$documento, $pad11, $pad12]);
-                        });
+                        // Busca no Banco de Dados (Mais confiável)
+                        $employee = Employee::where('company_id', $device->company_id)
+                            ->where(function ($q) use ($docsTestados) {
+                                $q->whereIn('cpf', $docsTestados)
+                                    ->orWhereIn('pis', $docsTestados);
+                            })->first();
 
                         if ($employee) {
                             // Salva a batida
@@ -124,6 +127,7 @@ class SyncRelogios extends Command
                             ]);
 
                             if ($punch->wasRecentlyCreated) {
+                                $this->line("✔️ Batida Salva -> {$employee->name} | " . $punchTime->format('d/m/Y H:i'));
                                 $novasBatidas++;
                             }
                         } else {

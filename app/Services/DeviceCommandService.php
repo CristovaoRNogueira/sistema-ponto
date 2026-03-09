@@ -6,7 +6,6 @@ use App\Models\Device;
 use App\Models\Employee;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Carbon\Carbon;
 
 class DeviceCommandService
 {
@@ -16,7 +15,6 @@ class DeviceCommandService
             throw new \Exception("Sem IP configurado.");
         }
 
-        // Força HTTPS e ignora o certificado autoassinado (verify => false)
         $response = Http::withOptions(['verify' => false])
             ->withHeaders(['Content-Type' => 'application/json', 'Accept' => 'application/json'])
             ->timeout(10)
@@ -33,45 +31,42 @@ class DeviceCommandService
         throw new \Exception("Erro de Login (HTTP {$response->status()}): {$erro}");
     }
 
+    // FUNÇÃO ORIGINAL RESTAURADA: Sem códigos intrusivos de banco de dados
     public function sendCommand(Device $device, string $endpoint, array $payload = [], bool $useMode671 = true)
     {
         try {
             $session = $this->authenticate($device);
 
-            // Força HTTPS
+            // Colocamos o mode=671 na URL
             $url = "https://{$device->ip_address}/{$endpoint}?session={$session}";
             if ($useMode671) {
                 $url .= "&mode=671";
             }
 
+            // Para comandos de "load", o relógio iDClass muitas vezes exige 
+            // que a session seja o ÚNICO campo no JSON se não houver filtros.
             $finalPayload = ['session' => $session];
+
+            // Mescla com o restante do payload apenas se houver dados
             if (!empty($payload)) {
                 $finalPayload = array_merge($finalPayload, $payload);
             }
 
-            // Ignora SSL também no envio do comando
+            Log::info("==== PAYLOAD ENVIADO PARA {$endpoint} ====", $finalPayload);
+
             $response = Http::withOptions(['verify' => false])
                 ->asJson()
                 ->timeout(30)
                 ->post($url, $finalPayload);
 
             if (!$response->successful()) {
-                throw new \Exception("Erro {$endpoint}: " . $response->body());
+                Log::error("Erro {$endpoint} IP {$device->ip_address}: " . $response->body());
+                return false;
             }
-
-            $device->update([
-                'is_online' => true,
-                'last_seen_at' => Carbon::now(),
-                'last_error' => null
-            ]);
 
             return $response->json();
         } catch (\Exception $e) {
             Log::error("FALHA DE SINCRONIZAÇÃO ({$device->name}): " . $e->getMessage());
-            $device->update([
-                'is_online' => false,
-                'last_error' => substr($e->getMessage(), 0, 255)
-            ]);
             return false;
         }
     }
@@ -120,16 +115,18 @@ class DeviceCommandService
         );
     }
 
+    // =================================================================
+    // FUNÇÃO DO RADAR (Isolada para não quebrar a API Principal)
+    // =================================================================
     public function checkHealth(Device $device)
     {
         try {
             $session = $this->authenticate($device);
 
-            // Força HTTPS e ignora SSL no Health Check
             $response = Http::withOptions(['verify' => false])
                 ->asJson()
                 ->timeout(10)
-                ->post("https://{$device->ip_address}/get_system_variables.fcgi?session={$session}", [
+                ->post("https://{$device->ip_address}/get_printer_status.fcgi?session={$session}", [
                     'session' => $session
                 ]);
 
@@ -137,15 +134,15 @@ class DeviceCommandService
                 $data = $response->json();
                 $paperStatus = 'ok';
 
-                if (isset($data['printer_paper_empty']) && $data['printer_paper_empty'] == '1') {
+                if (isset($data['paper_empty']) && $data['paper_empty'] == '1') {
                     $paperStatus = 'empty';
-                } elseif (isset($data['printer_paper_low']) && $data['printer_paper_low'] == '1') {
+                } elseif (isset($data['paper_low']) && $data['paper_low'] == '1') {
                     $paperStatus = 'low';
                 }
 
                 $device->update([
                     'is_online' => true,
-                    'last_seen_at' => Carbon::now(),
+                    'last_seen_at' => \Carbon\Carbon::now(),
                     'paper_status' => $paperStatus,
                     'last_error' => null
                 ]);
